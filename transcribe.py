@@ -57,5 +57,9 @@ def transcribe(x, sr=16000):
 
 
 if __name__ == "__main__":
+    import sys
     print("downloading/loading %s ..." % MODEL)
-    print("ready" if available() else "FAILED: %r" % LAST_ERROR)
+    if not available():
+        print("FAILED: %r" % LAST_ERROR)
+        sys.exit(1)             # a Docker build must stop here, not ship without it
+    print("ready")

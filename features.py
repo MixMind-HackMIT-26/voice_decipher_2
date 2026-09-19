@@ -22,20 +22,54 @@ VAD_THRESH = 0.5          # Silero speech probability cut
 LAST_BACKEND = None       # "silero" or "energy" -- which VAD the last call used
 
 
+def _need_16bit(path, bits):
+    # int16 is assumed below. A 24-bit or float wav parses without complaint
+    # and yields silent nonsense, so refuse it loudly.
+    if bits != 16:
+        raise ValueError(
+            "%s is %d-bit; need 16-bit PCM wav. Convert it:\n"
+            "  afconvert -f WAVE -d LEI16@16000 -c 1 '%s' out.wav" % (path, bits, path))
+
+
 def _read_wav(path):
-    with wave.open(path, "rb") as w:
-        # int16 is assumed three lines down. A 24-bit or float wav parses here
-        # without complaint and yields silent nonsense, so refuse it loudly.
-        if w.getsampwidth() != 2:
-            raise ValueError(
-                "%s is %d-bit; need 16-bit PCM wav. Convert it:\n"
-                "  afconvert -f WAVE -d LEI16@16000 -c 1 '%s' out.wav"
-                % (path, w.getsampwidth() * 8, path))
-        sr, n = w.getframerate(), w.getnframes()
-        raw = np.frombuffer(w.readframes(n), dtype=np.int16).astype(np.float64)
-        if w.getnchannels() == 2:
-            raw = raw.reshape(-1, 2).mean(axis=1)
+    try:
+        with wave.open(path, "rb") as w:
+            _need_16bit(path, w.getsampwidth() * 8)
+            sr, ch = w.getframerate(), w.getnchannels()
+            data = w.readframes(w.getnframes())
+    except wave.Error as e:
+        # WAVE_FORMAT_EXTENSIBLE: ordinary PCM behind a longer header, written
+        # by afconvert, ffmpeg, Audacity... Python's wave module only reads it
+        # from 3.12, and Raspberry Pi OS ships 3.11.
+        if "65534" not in str(e):
+            raise
+        sr, ch, data = _read_extensible(path)
+    raw = np.frombuffer(data, dtype=np.int16).astype(np.float64)
+    if ch > 1:
+        raw = raw[:len(raw) // ch * ch].reshape(-1, ch).mean(axis=1)
     return raw / 32768.0, sr
+
+
+def _read_extensible(path):
+    import struct
+    b = open(path, "rb").read()
+    fmt = data = None
+    i = 12                                        # skip "RIFF" size "WAVE"
+    while i + 8 <= len(b):
+        cid, size = b[i:i + 4], struct.unpack("<I", b[i + 4:i + 8])[0]
+        body = b[i + 8:i + 8 + size]
+        if cid == b"fmt ":
+            fmt = body
+        elif cid == b"data":
+            data = body
+        i += 8 + size + (size & 1)                # chunks are word-aligned
+    if fmt is None or data is None or len(fmt) < 26:
+        raise ValueError("%s: not a readable wav" % path)
+    ch, sr = struct.unpack("<HI", fmt[2:8])
+    _need_16bit(path, struct.unpack("<H", fmt[14:16])[0])
+    if struct.unpack("<H", fmt[24:26])[0] != 1:   # sub-format must be PCM
+        raise ValueError("%s: not PCM audio" % path)
+    return sr, ch, data
 
 
 def _yin_many(F, sr, fmin=F_MIN, fmax=F_MAX):

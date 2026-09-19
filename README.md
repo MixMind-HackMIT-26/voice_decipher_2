@@ -20,6 +20,41 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python record_samples.py        # record your own ten clips
 ```
 
+## Docker
+
+One image for the Pi and a Mac: both are linux/arm64. The speech-to-text
+model is baked in, so the container never needs the internet -- every test
+and the full pipeline pass with `--network none`.
+
+```
+docker build -t voice-decipher .                     # ~2.5 min on a Mac, 1 GB
+```
+
+**On the Pi** -- the mic and the UNO Q's UART are passed through:
+
+```
+docker run -it --rm --device /dev/snd --device /dev/serial0 \
+  -e MIXMIND_MIC=USB -v "$PWD/logs:/app/logs" voice-decipher
+```
+
+Faster than building on the Pi: build on the Mac (same architecture) and ship it.
+
+```
+docker save voice-decipher | gzip | ssh <user>@mixmind.local 'gunzip | docker load'
+```
+
+**On a Mac** there is no microphone inside Docker (Docker Desktop has no
+audio passthrough), so use recordings:
+
+```
+docker run --rm voice-decipher python pipeline.py --mock --wav tests/samples/flat-1.wav
+docker run --rm voice-decipher sh -c 'for t in tests/test_*.py; do python $t; done'
+```
+
+Python in the image is 3.11 -- what Raspberry Pi OS ships -- which is how the
+image caught that Python's `wave` module cannot read WAVE_FORMAT_EXTENSIBLE
+headers before 3.12. `features.py` now reads them itself.
+
 ## How they sound AND what they say
 
 The voice gives **energy** (pace, pauses, wobble, loudness); the words give

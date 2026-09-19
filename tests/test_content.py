@@ -41,12 +41,27 @@ assert fine_words["rationale"].startswith("You said you're fine, but"), fine_wor
 
 # 4. the real thing, if the model is installed: transcribe and read our own
 #    recordings, whose scripts we know
+SCRIPT = ("I'm fine, really. It's nothing, honestly, it's not a big deal. Things have "
+          "just been a bit busy lately, that's all. We can talk about it later tonight "
+          "if you want, or tomorrow, whatever works for you. Anyway, how was your day?")
+
+def recall(text):
+    """Share of the script's words that made it into the transcript."""
+    import collections, re
+    w = lambda t: collections.Counter(re.findall(r"[a-z']+", t.lower()))
+    s, g = w(SCRIPT), w(text)
+    return sum(min(n, g[k]) for k, n in s.items()) / sum(s.values())
+
 if transcribe.available():
     got = {}
     for n in ("flat-1", "happy-1"):
         x, sr = features._read_wav(os.path.join(HERE, "tests", "samples", n + ".wav"))
         text = transcribe.transcribe(x, sr)
-        assert "fine" in text.lower() and "big deal" in text.lower(), (n, text)
+        # Whisper's output shifts a little between CPUs: 98% of the script on a
+        # Mac, 90-98% on Linux arm64. 85% is below that and far above a wrong
+        # model or broken audio. "fine" must survive -- the demo hangs on it.
+        assert recall(text) >= 0.85, (n, round(recall(text), 2), text)
+        assert "fine" in text.lower(), (n, text)
         f = features.extract(os.path.join(HERE, "tests", "samples", n + ".wav"))
         got[n] = lb.recipe(f, content.analyze(text, f["duration_s"]))
     # same words, said two ways: the demo
