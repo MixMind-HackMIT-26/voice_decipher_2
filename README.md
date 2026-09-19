@@ -15,8 +15,73 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python eval_voice.py            # every clip in tests/samples + pair check
 .venv/bin/python eval_voice.py --live     # talk into the mic, watch the numbers move
 .venv/bin/python tests/test_features.py   # measurements checked against known answers
+.venv/bin/python tests/test_uno_q.py      # the Pi <-> UNO Q link, over a fake board
 .venv/bin/python record_samples.py        # record your own ten clips
 ```
+
+## Voice in, drink out: Raspberry Pi + Arduino UNO Q
+
+```
+mic -> Pi: listen.py -> features.py -> local_bartender.py -> uno_q.py
+                                                                 | 3 wires, UART
+                                        UNO Q STM32: unoq/sketch -> relays -> pumps
+```
+
+The Pi does the listening and thinking; the UNO Q's microcontroller switches
+the pumps. `pipeline.py` is the whole loop: press Enter, talk, it pours.
+
+### Wire it -- three wires, no level shifter
+
+| Raspberry Pi | UNO Q |
+|---|---|
+| GPIO14 TXD, **pin 8** | **D0** (RX) |
+| GPIO15 RXD, **pin 10** | **D1** (TX) |
+| GND, **pin 6** | **GND** |
+
+Both are 3.3 V logic. Why not USB: on the UNO Q the USB-C port belongs to
+its Linux side, not the microcontroller, so the old "plug the UNO into the
+Pi's USB and send `P3 2400`" setup does not exist on this board. D0/D1 are the
+microcontroller's own UART (`Serial1`).
+
+Relays: pumps 1-6 on **D2-D7**, stirrer on **D8**. **The UNO Q drives 3.3 V,
+and the relay board was chosen for a 5 V UNO** -- with an active-low board on
+5 V, a 3.3 V "off" can leave a relay half on. Power the relay board's VCC
+(logic side) from **3.3 V**, keep **JD-VCC on 5 V** for the coils.
+
+### UNO Q: upload the sketch
+
+Arduino App Lab -> new App -> paste `unoq/sketch/sketch.ino` into the sketch
+tab -> Run. The console then shows every command it receives, and the onboard
+LED lights while a pump runs -- so it can be tested with no relays at all.
+
+### Pi: turn on the UART, then run
+
+```
+sudo raspi-config    # Interface Options -> Serial Port:
+                     #   login shell over serial? NO   hardware enabled? YES
+sudo reboot
+sudo usermod -a -G dialout $USER     # then log out and in
+.venv/bin/python -m serial.tools.miniterm /dev/serial0 115200
+                     # type ?  and Enter -> MIXMIND v3 UNOQ   (Ctrl-] quits)
+.venv/bin/python pipeline.py
+```
+
+If replies come back garbled, the Pi 4's mini-UART is drifting with the CPU
+clock: add `dtoverlay=disable-bt` to `/boot/firmware/config.txt` to put the
+proper UART on those pins. No free GPIO? A **3.3 V** USB-serial adapter works
+too: `pipeline.py --port /dev/ttyUSB0`.
+
+### Test all of it on a Mac first
+
+```
+.venv/bin/python pipeline.py --mock --wav tests/samples/tired-1.wav   # no board
+.venv/bin/python unoq/fake_board.py                     # a pretend UNO Q on a serial port
+.venv/bin/python pipeline.py --port /dev/ttys00N --wav tests/samples/wired-1.wav
+.venv/bin/python tests/test_uno_q.py                    # failures: all off, refusals, dead board
+```
+
+`fake_board.py` answers exactly like the sketch through a real virtual serial
+port, so the Pi's serial code runs for real. Drop `--wav` to use the mic.
 
 ## What it measures
 

@@ -1,3 +1,4 @@
 numpy
 onnxruntime    # Silero VAD. Optional: without it, features.py falls back to energy
 sounddevice    # only for recording (listen.py, record_samples.py, eval_voice.py --live)
+pyserial       # the UART link to the UNO Q (uno_q.py, pipeline.py)
