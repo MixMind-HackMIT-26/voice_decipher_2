@@ -37,7 +37,17 @@ MIXMIND_MIC=USB .venv/bin/python server.py --ui ~/mixmind-ui    # the machine
 .venv/bin/python server.py --ui ~/mixmind-ui --board mock       # no UNO Q yet
 ```
 
-Then open `http://localhost:8080` on the touchscreen. Recording ends when the
+Then open it fullscreen on the touchscreen -- works from SSH too:
+
+```
+./kiosk-browser.sh
+```
+
+It launches Chromium with the flags this Pi needs: `--ozone-platform=wayland`
+(from SSH it otherwise assumes X11 and exits) and `--password-store=basic`
+(otherwise it waits forever on a hidden keyring-password dialog and the page
+never loads). After a reboot: `./kiosk.sh` in one session, `./kiosk-browser.sh`
+in another. Recording ends when the
 guest goes quiet for 0.9 s (or at 25 s). A sound under 250 ms -- a click, a
 breath, the tap on the screen -- does not count as starting to talk: without
 that rule one tap ended the recording at 1.7 s.
