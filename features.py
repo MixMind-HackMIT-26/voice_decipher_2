@@ -12,7 +12,8 @@ FRAME_MS, HOP_MS = 32, 10
 VOICED_REL_DB = 30.0      # speech covers roughly this dynamic range
 VOICED_FLOOR  = -60.0     # ...but an (almost) silent clip stays silent
 F_MIN, F_MAX  = 70, 400   # human pitch search range, Hz
-CONF_MIN      = 0.30      # autocorrelation peak threshold
+YIN_THRESH    = 0.12      # YIN absolute threshold; lower = pickier
+YIN_MAX_CMND  = 0.60      # above this the frame is too uncertain to call
 
 DEFAULTS = dict(pitch_mean_hz=0, pitch_sd_hz=0, loudness_db=-90,
                 pause_ratio=1.0, onset_rate_hz=0, duration_s=0)
@@ -34,31 +35,68 @@ def _read_wav(path):
     return raw / 32768.0, sr
 
 
+def _yin(x, sr, fmin=F_MIN, fmax=F_MAX):
+    """Fundamental frequency of one frame, YIN (de Cheveigne & Kawahara 2002).
+
+    Plain autocorrelation picks the wrong peak an octave out whenever the
+    signal is noisy or the amplitude moves -- on our own clips that inflated
+    pitch_sd to 60-100 Hz and pinned the 'animated' axis at maximum. YIN's
+    cumulative-mean normalisation removes the zero-lag bias that causes it.
+    """
+    x = x - x.mean()
+    n = x.size
+    tau_min, tau_max = int(sr / fmax), int(sr / fmin)
+    if n < tau_max + 2:
+        return 0.0
+    # difference function d(tau) from the autocorrelation identity, vectorised
+    ac = np.correlate(x, x, mode="full")[n - 1:]
+    cum = np.concatenate(([0.0], np.cumsum(x * x)))
+    total = cum[n]
+    taus = np.arange(tau_max + 1)
+    head = total - (cum[n] - cum[n - taus])      # power of x[:n-tau]
+    tail = total - cum[taus]                     # power of x[tau:]
+    d = head + tail - 2 * ac[:tau_max + 1]
+    # cumulative mean normalised difference
+    run = np.cumsum(d[1:])
+    cmnd = np.ones(tau_max + 1)
+    nz = run > 0
+    cmnd[1:][nz] = d[1:][nz] * taus[1:][nz] / run[nz]
+
+    seg = cmnd[tau_min:tau_max + 1]
+    if seg.size == 0:
+        return 0.0
+    below = np.flatnonzero(seg < YIN_THRESH)
+    tau = tau_min + int(below[0] if below.size else np.argmin(seg))
+    if cmnd[tau] > YIN_MAX_CMND:
+        return 0.0                                # unvoiced or unsure
+    if 1 <= tau < tau_max:                        # parabolic refinement
+        a, b, c = cmnd[tau - 1], cmnd[tau], cmnd[tau + 1]
+        den = a - 2 * b + c
+        if den != 0:
+            tau = tau + 0.5 * (a - c) / den
+    return sr / tau if tau > 0 else 0.0
+
+
 def extract(path):
     x, sr = _read_wav(path)
     if x.size == 0:
         return dict(DEFAULTS)
     fl, hl = int(sr * FRAME_MS / 1000), int(sr * HOP_MS / 1000)
     win = np.hanning(fl)
-    frames = [x[i:i + fl] * win for i in range(0, max(1, len(x) - fl), hl)]
+    # Raw frames, not windowed. Energy uses the window; YIN must NOT -- a Hann
+    # taper distorts the difference function and puts the octave errors back.
+    frames = [x[i:i + fl] for i in range(0, max(1, len(x) - fl), hl)]
 
-    rms = np.array([np.sqrt(np.mean(f ** 2)) + 1e-12 for f in frames])
+    rms = np.array([np.sqrt(np.mean((f * win) ** 2)) + 1e-12 for f in frames])
     db = 20 * np.log10(rms)
     voiced = db > max(db.max() - VOICED_REL_DB, VOICED_FLOOR)
 
     pitches = []
-    lo, hi = int(sr / F_MAX), int(sr / F_MIN)
     for f, v in zip(frames, voiced):
         if not v: continue
-        f = f - f.mean()
-        ac = np.correlate(f, f, mode="full")[len(f) - 1:]
-        if ac[0] <= 0: continue
-        ac = ac / ac[0]
-        seg = ac[lo:hi]
-        if seg.size == 0: continue
-        k = int(np.argmax(seg))
-        if seg[k] >= CONF_MIN:
-            pitches.append(sr / (lo + k))
+        f0 = _yin(f, sr)
+        if f0 > 0:
+            pitches.append(f0)
 
     p = np.array(pitches) if pitches else np.array([0.0])
     d = np.diff(db, prepend=db[0])          # onsets: rising energy edges
