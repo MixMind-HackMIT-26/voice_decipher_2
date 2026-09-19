@@ -5,9 +5,14 @@ Handbook §08. Deliberately NOT librosa: numba/llvmlite will not build on a Pi.
 import numpy as np, wave
 
 FRAME_MS, HOP_MS = 32, 10
-VOICED_DB    = -35.0      # frames quieter than this are 'silence'
-F_MIN, F_MAX = 70, 400    # human pitch search range, Hz
-CONF_MIN     = 0.30       # autocorrelation peak threshold
+# A frame counts as speech if it is within VOICED_REL_DB of the clip's own
+# loudest frame. It must be RELATIVE: recording level varies by ~10 dB between
+# phones, rooms and speakers, and a fixed dBFS line mislabels every quiet clip
+# as silence and every noisy one as wall-to-wall speech.
+VOICED_REL_DB = 30.0      # speech covers roughly this dynamic range
+VOICED_FLOOR  = -60.0     # ...but an (almost) silent clip stays silent
+F_MIN, F_MAX  = 70, 400   # human pitch search range, Hz
+CONF_MIN      = 0.30      # autocorrelation peak threshold
 
 DEFAULTS = dict(pitch_mean_hz=0, pitch_sd_hz=0, loudness_db=-90,
                 pause_ratio=1.0, onset_rate_hz=0, duration_s=0)
@@ -39,7 +44,7 @@ def extract(path):
 
     rms = np.array([np.sqrt(np.mean(f ** 2)) + 1e-12 for f in frames])
     db = 20 * np.log10(rms)
-    voiced = db > VOICED_DB
+    voiced = db > max(db.max() - VOICED_REL_DB, VOICED_FLOOR)
 
     pitches = []
     lo, hi = int(sr / F_MAX), int(sr / F_MIN)
