@@ -43,24 +43,55 @@ def list_devices():
     print("\ncurrently selected: %s" % ("default" if cur is None else cur))
 
 
+NO_SPEECH_S = 8.0     # nobody has said anything: give up rather than wait 25 s
+
+
+class Endpointer:
+    """Decides, chunk by chunk, when the guest has finished talking.
+
+    Uses Silero when it is available. The energy fallback cannot hear the end
+    of speech in a loud hall -- the room never goes quiet, so it records until
+    the 25 s hard stop for every single guest.
+    """
+
+    def __init__(self, use_vad=True):
+        import vad
+        self.vad = vad.Stream() if use_vad and vad.available() else None
+        self.chunk = vad.CHUNK
+        self.heard = False
+        self.quiet_for = self.elapsed = 0.0
+
+    def feed(self, block_int16):
+        """Feed exactly self.chunk samples. Returns (done, level_db)."""
+        x = block_int16.astype(np.float32) / 32768.0
+        db = 20 * np.log10(float(np.sqrt(np.mean(x.astype(np.float64) ** 2))) + 1e-12)
+        speaking = (self.vad.feed(x) > 0.5) if self.vad else (db >= SILENCE_DB)
+        dt = len(x) / SR
+        self.elapsed += dt
+        if speaking:
+            self.heard, self.quiet_for = True, 0.0
+        else:
+            self.quiet_for += dt
+        done = (self.elapsed >= MAX_S
+                or (self.heard and self.elapsed > MIN_S and self.quiet_for > SILENCE_S)
+                or (not self.heard and self.elapsed > NO_SPEECH_S))
+        return done, db
+
+
 def record(path=None, on_level=None):
-    """Blocking record until 900 ms of silence, or 25 s. Returns the wav path."""
+    """Blocking record until they stop talking, or 25 s. Returns the wav path."""
     import sounddevice as sd          # imported late: the Pi has it, laptops may not
     path = path or tempfile.mktemp(suffix=".wav")
-    block = int(SR * 0.05)
-    chunks, quiet_for, elapsed = [], 0.0, 0.0
-
+    ep = Endpointer()
+    chunks = []
     with sd.InputStream(samplerate=SR, channels=1, dtype="int16",
-                        blocksize=block, device=_device()) as s:
-        while elapsed < MAX_S:
-            buf, _ = s.read(block)
+                        blocksize=ep.chunk, device=_device()) as s:
+        while True:
+            buf, _ = s.read(ep.chunk)
             chunks.append(buf.copy())
-            elapsed += block / SR
-            rms = float(np.sqrt(np.mean((buf.astype(np.float64) / 32768.0) ** 2)) + 1e-12)
-            db = 20 * np.log10(rms)
+            done, db = ep.feed(buf[:, 0])
             if on_level: on_level(db)
-            quiet_for = quiet_for + block / SR if db < SILENCE_DB else 0.0
-            if elapsed > MIN_S and quiet_for > SILENCE_S:
+            if done:
                 break
 
     with wave.open(path, "wb") as w:
