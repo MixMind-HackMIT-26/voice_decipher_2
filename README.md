@@ -16,13 +16,48 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python eval_voice.py --live     # talk into the mic, watch the numbers move
 .venv/bin/python tests/test_features.py   # measurements checked against known answers
 .venv/bin/python tests/test_uno_q.py      # the Pi <-> UNO Q link, over a fake board
+.venv/bin/python tests/test_content.py    # speech-to-text and what the words mean
 .venv/bin/python record_samples.py        # record your own ten clips
+```
+
+## How they sound AND what they say
+
+The voice gives **energy** (pace, pauses, wobble, loudness); the words give
+**what they claim** and a rough **mood**. The voice decides the drink's mood;
+the words change what the machine says about it. Same words, said two ways,
+from our own recordings:
+
+> **flat-1**: "You said you're fine, but you left a lot of space between your
+> words and you spoke softly -- this is mostly citrus and soda..."
+>
+> **happy-1**: "You said you're fine and you sounded it: you talked quickly.
+> This is bright and sharp..."
+
+| piece | what | runs |
+|---|---|---|
+| `transcribe.py` | Whisper `base.en` via faster-whisper | offline, ~0.7 s per 15 s clip on a Mac |
+| `content.py` | did they claim to be fine? + VADER sentiment | offline, instant |
+
+`base.en` over `tiny.en`: tiny turned "it's not a big deal" into "they thought
+big do". Set `MIXMIND_STT_MODEL=tiny.en` if the Pi is too slow.
+
+The "claims to be fine" check is a narrow phrase match and reliable. VADER's
+sentiment is only a nudge on the pour: on our own scripts it scored "it's been
+a long day... nonstop" as positive. Speech-to-text and the voice measurements
+run in parallel. If the model is missing, the words are skipped and the voice
+path carries on.
+
+**Download the model once while online** -- it is cached and loads offline after:
+
+```
+.venv/bin/python transcribe.py
 ```
 
 ## Voice in, drink out: Raspberry Pi + Arduino UNO Q
 
 ```
-mic -> Pi: listen.py -> features.py -> local_bartender.py -> uno_q.py
+mic -> Pi: listen.py -> features.py   \
+                        transcribe.py -> content.py -> local_bartender.py -> uno_q.py
                                                                  | 3 wires, UART
                                         UNO Q STM32: unoq/sketch -> relays -> pumps
 ```

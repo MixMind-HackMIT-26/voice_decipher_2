@@ -46,14 +46,15 @@ def axes(f):
     return energy, halting, animated
 
 
-def _weights(energy, halting, animated):
+def _weights(energy, halting, animated, valence=0.0):
     # 1 citrus base · 2 tart red · 3 sour accent · 4 sparkling · 5 dark · 6 warm
+    # Words only nudge: happy words lean bright, heavy words lean comforting.
     return {
-        1: 0.30 + 0.40 * halting + 0.30 * animated,
+        1: 0.30 + 0.40 * halting + 0.30 * animated + 0.25 * max(valence, 0),
         2: 0.15 + 0.60 * energy,
         3: 0.10 + 0.45 * energy + 0.25 * animated,
         4: 0.25 + 0.55 * energy + 0.25 * halting,
-        5: 0.15 + 0.55 * (1 - energy),
+        5: 0.15 + 0.55 * (1 - energy) + 0.30 * max(-valence, 0),
         6: 0.20 + 0.50 * (1 - energy) + 0.25 * (1 - halting),
     }
 
@@ -125,7 +126,7 @@ _POUR = {
 }
 
 
-def _rationale(f, energy, halting, animated, mood):
+def _rationale(f, energy, halting, animated, mood, words=None):
     """Name the two loudest signals, then the drink that answers them."""
     signals = [
         (abs(_n(f["loudness_db"], *RANGES["loudness_db"]) - 0.5),
@@ -137,13 +138,25 @@ def _rationale(f, energy, halting, animated, mood):
     ]
     signals.sort(key=lambda s: -s[0])
     a, b = _SAYS[signals[0][1]], _SAYS[signals[1][1]]
+    w = words or {}
+    low = mood in ("depleted", "calm", "careful")
+    # The voice decides the mood; the words only change what we say about it.
+    if w.get("says_okay") and low:
+        # The demo: the words say fine, the voice does not.
+        return "You said you're fine, but %s and %s -- %s." % (a, b, _POUR[mood][3:])
+    if w.get("says_okay"):
+        return "You said you're fine and you sounded it: %s. %s." % (
+            a, _POUR[mood][3:][0].upper() + _POUR[mood][4:])
+    if w.get("valence", 0) <= -0.4 and not low:
+        return "Rough words, but %s -- %s." % (a, _POUR[mood][3:])
     return "%s and %s, %s." % (a[0].upper() + a[1:], b, _POUR[mood])
 
 
-def recipe(f):
-    """Six numbers in, a valid recipe out. No network, no model, ~0 ms."""
+def recipe(f, words=None):
+    """Voice numbers (and optionally content.analyze() output) in, a valid
+    recipe out. No network, no model, ~0 ms."""
     energy, halting, animated = axes(f)
-    w = _weights(energy, halting, animated)
+    w = _weights(energy, halting, animated, (words or {}).get("valence", 0.0))
     chosen = _pick(w)
     pours = _doses(chosen, w, energy)
     mood = _mood(energy, halting, animated)
@@ -154,7 +167,7 @@ def recipe(f):
 
     return {
         "name": NAMES[mood][idx],
-        "rationale": _rationale(f, energy, halting, animated, mood),
+        "rationale": _rationale(f, energy, halting, animated, mood, words),
         "pours": pours,
         "stir_seconds": 6,
         "mood": mood,

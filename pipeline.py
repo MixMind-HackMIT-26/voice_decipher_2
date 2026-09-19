@@ -9,8 +9,9 @@ Press Enter, talk, stop. It stops listening by itself ~0.9 s after you do.
 Ctrl-C to quit. Every drink is logged to logs/ as JSON.
 """
 import argparse, json, os, sys, time
+from concurrent.futures import ThreadPoolExecutor
 
-import features, listen, local_bartender, vad
+import content, features, listen, local_bartender, transcribe, vad
 import uno_q
 
 
@@ -29,12 +30,23 @@ def one_drink(board, wav=None):
         t["listen_s"] = round(time.time() - t0, 2)
 
     t1 = time.time()
-    feats = features.extract(wav)
-    recipe = local_bartender.recipe(feats)
+    # How they sounded and what they said both read the same recording and
+    # need nothing from each other: run them side by side.
+    x, sr = features._read_wav(wav)
+    with ThreadPoolExecutor(2) as ex:
+        f_voice = ex.submit(features.extract, wav)
+        f_text = ex.submit(transcribe.transcribe, x, sr)
+        feats, text = f_voice.result(), f_text.result()
+    words = content.analyze(text, feats["duration_s"])
+    recipe = local_bartender.recipe(feats, words)
     t["think_s"] = round(time.time() - t1, 3)
     print("HEARD     pitch %.0f Hz, wobble %.0f, pause %.2f, pace %.2f, %.1f s of talking"
           % (feats["pitch_mean_hz"], feats["pitch_sd_hz"], feats["pause_ratio"],
              feats["onset_rate_hz"], feats["duration_s"]))
+    print("SAID      \"%s\"" % (text or "(no words caught)"))
+    print("          %d words/min, mood of words %+.2f%s"
+          % (words["words_per_min"], words["valence"],
+             ", claims to be fine" if words["says_okay"] else ""))
     print("DRINK     %s  [%s]" % (recipe["name"], recipe["mood"]))
     print("          %s" % recipe["rationale"])
 
@@ -46,7 +58,8 @@ def one_drink(board, wav=None):
     os.makedirs("logs", exist_ok=True)
     with open(os.path.join("logs", "%d.json" % time.time()), "w") as f:
         json.dump({"at": time.strftime("%F %T"), "wav": wav, "features": feats,
-                   "recipe": recipe, "timings": t, "vad": features.LAST_BACKEND}, f, indent=2)
+                   "words": words, "recipe": recipe, "timings": t,
+                   "vad": features.LAST_BACKEND}, f, indent=2)
 
 
 def main():
@@ -57,9 +70,11 @@ def main():
     a = ap.parse_args()
 
     board = uno_q.MockUnoQ() if a.mock else uno_q.UnoQ(a.port)
-    vad.available()                      # load the model now, not mid-guest
-    print("MixMind  board: %s  VAD: %s\n"
-          % (board.version, "silero" if vad.available() else "energy"))
+    vad.available()                      # load both models now, not mid-guest
+    stt = transcribe.available()
+    print("MixMind  board: %s  VAD: %s  speech-to-text: %s\n"
+          % (board.version, "silero" if vad.available() else "energy",
+             transcribe.MODEL if stt else "OFF (%s)" % transcribe.LAST_ERROR))
     try:
         if a.wav:
             one_drink(board, a.wav)

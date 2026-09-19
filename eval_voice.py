@@ -72,6 +72,21 @@ def folder(target):
               "   !! SAME DRINK" if same else ""))
     if total:
         print("\n  %d/%d direction checks pass" % (score, total))
+
+    import content, transcribe
+    if not transcribe.available():
+        print("\nWORDS: speech-to-text off (%s)" % transcribe.LAST_ERROR)
+        return 0
+    print("\nWHAT THEY SAID  (voice decides the mood; words change what it says)")
+    for w in wavs:
+        n = os.path.basename(w)[:-4]
+        x, sr = features._read_wav(w)
+        f = res[n][0]
+        words = content.analyze(transcribe.transcribe(x, sr), f["duration_s"])
+        r = local_bartender.recipe(f, words)
+        print("  %-10s %3.0f wpm  words %+.2f%s" % (n, words["words_per_min"], words["valence"],
+              "  says fine" if words["says_okay"] else ""))
+        print("             \"%s\"" % r["rationale"])
     return 0
 
 
