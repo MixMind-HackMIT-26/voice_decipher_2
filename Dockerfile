@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Bake the speech-to-text model into the image: the container then never
 # needs the internet, so a dead hotspot at the venue cannot break it.
-ENV HF_HOME=/models MIXMIND_STT_MODEL=base.en
+ENV HF_HOME=/models MIXMIND_STT_MODEL=tiny.en
 COPY transcribe.py .
 RUN python transcribe.py
 

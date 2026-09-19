@@ -98,11 +98,14 @@ from our own recordings:
 
 | piece | what | runs |
 |---|---|---|
-| `transcribe.py` | Whisper `base.en` via faster-whisper | offline, ~0.7 s per 15 s clip on a Mac |
+| `transcribe.py` | Whisper `tiny.en` via faster-whisper | offline; 5.1 s per 20 s of speech on the Pi 4 |
 | `content.py` | did they claim to be fine? + VADER sentiment | offline, instant |
 
-`base.en` over `tiny.en`: tiny turned "it's not a big deal" into "they thought
-big do". Set `MIXMIND_STT_MODEL=tiny.en` if the Pi is too slow.
+`tiny.en`, not `base.en`: on the Pi 4, base took 9.0 s per 20 s of speech,
+tiny 5.1 s. Tiny is rougher (79-86% of the script's words vs 98%) but still
+hears "I'm fine". Retries are off (`temperature=0`): on real venue noise
+Whisper otherwise re-decoded junk for **30 s**. `MIXMIND_STT_MODEL=base.en` on
+faster hardware.
 
 The "claims to be fine" check is a narrow phrase match and reliable. VADER's
 sentiment is only a nudge on the pour: on our own scripts it scored "it's been

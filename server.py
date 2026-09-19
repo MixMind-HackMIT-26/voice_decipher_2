@@ -70,6 +70,7 @@ class Machine:
     # ---------- one guest, start to finish ----------
     def _guest(self):
         log = {"at": time.strftime("%F %T")}
+        wav = None
         try:
             self._set(state="listening", level_db=-60.0, elapsed_s=0.0, features=None,
                       recipe=None, pour=None, error=None, reset=True)
@@ -131,6 +132,10 @@ class Machine:
             self._set(state="error", pour=None,
                       error="Something went wrong on our side. Please try again.")
         finally:
+            # One recording per guest, deleted once used. /tmp is in RAM on the
+            # Pi: kept, a weekend of guests would slowly eat the memory.
+            if wav and os.path.exists(wav):
+                os.remove(wav)
             os.makedirs("logs", exist_ok=True)
             with open(os.path.join("logs", "%d.json" % time.time()), "w") as f:
                 json.dump(log, f, indent=2)

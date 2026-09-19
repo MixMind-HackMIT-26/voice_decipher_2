@@ -1,9 +1,19 @@
 """What they said. Whisper, offline, on the Pi's CPU.
 
-faster-whisper with base.en: on our recordings tiny.en turned "it's not a
-big deal" into "they thought big do" -- the kind of phrase that flips the
-sentiment -- while base.en got it right. tiny.en is ~2x faster; set
-MIXMIND_STT_MODEL=tiny.en if the Pi is too slow.
+faster-whisper with tiny.en, measured on the Pi 4 itself:
+
+                      20 s of speech   venue noise
+    base.en               9.0 s           3.6 s
+    tiny.en               5.1 s           2.0 s
+
+base.en is too slow for a guest standing at the machine. tiny.en is rougher
+(79-86% of our script's words against base.en's 98%) but still catches
+"I'm fine, really", which is what the demo needs. MIXMIND_STT_MODEL=base.en
+on anything faster than a Pi 4.
+
+temperature=0.0 matters even more than the model: on venue noise Whisper
+decodes junk (". . . .") and by default retries at five higher temperatures --
+30 s on the Pi for a clip with no words in it. One pass, no retries.
 
 Never breaks the pipeline: no package, no model, any error -> "". The voice
 measurements still work without the words.
@@ -14,7 +24,7 @@ Download the model ONCE while there is internet (it is cached after):
 import os
 import numpy as np
 
-MODEL = os.environ.get("MIXMIND_STT_MODEL", "base.en")
+MODEL = os.environ.get("MIXMIND_STT_MODEL", "tiny.en")
 _model = None
 LAST_ERROR = None
 
@@ -49,7 +59,8 @@ def transcribe(x, sr=16000):
             return ""
         segs, _ = _load().transcribe(np.asarray(x, dtype=np.float32), language="en",
                                      beam_size=1, vad_filter=False,
-                                     condition_on_previous_text=False)
+                                     condition_on_previous_text=False,
+                                     temperature=0.0, without_timestamps=True)
         return " ".join(s.text.strip() for s in segs).strip()
     except Exception as e:
         LAST_ERROR = e

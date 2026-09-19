@@ -57,10 +57,11 @@ if transcribe.available():
     for n in ("flat-1", "happy-1"):
         x, sr = features._read_wav(os.path.join(HERE, "tests", "samples", n + ".wav"))
         text = transcribe.transcribe(x, sr)
-        # Whisper's output shifts a little between CPUs: 98% of the script on a
-        # Mac, 90-98% on Linux arm64. 85% is below that and far above a wrong
+        # Measured: base.en 90-98% of the script (Mac, Linux arm64); tiny.en,
+        # the Pi default, 79-86%. The bar sits under each, far above a wrong
         # model or broken audio. "fine" must survive -- the demo hangs on it.
-        assert recall(text) >= 0.85, (n, round(recall(text), 2), text)
+        floor = 0.70 if transcribe.MODEL.startswith("tiny") else 0.85
+        assert recall(text) >= floor, (n, transcribe.MODEL, round(recall(text), 2), text)
         assert "fine" in text.lower(), (n, text)
         f = features.extract(os.path.join(HERE, "tests", "samples", n + ".wav"))
         got[n] = lb.recipe(f, content.analyze(text, f["duration_s"]))

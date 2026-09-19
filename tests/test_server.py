@@ -55,6 +55,11 @@ assert seen == ["listening", "thinking", "reveal", "pouring", "serving", "idle"]
 assert snaps["reveal"]["recipe"]["rationale"].startswith("You said you're fine, but"), snaps["reveal"]
 assert snaps["thinking"]["features"] is None or "pitch_mean_hz" in snaps["thinking"]["features"]
 
+# the guest's recording is gone once it has been used
+import glob, tempfile as _t
+assert not [p for p in glob.glob(os.path.join(_t.gettempdir(), "tmp*.wav"))
+            if os.path.getmtime(p) > t0], "a recording was left behind"
+
 # an error is shown in plain words, and Try again gets back to idle
 m.board = type("Broken", (uno_q.MockUnoQ,), {"make": lambda *a, **k: (_ for _ in ()).throw(uno_q.UnoQError("x"))})()
 post("/api/start")

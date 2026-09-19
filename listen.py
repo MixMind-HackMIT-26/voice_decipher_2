@@ -111,10 +111,51 @@ def _capture(read, path=None, on_level=None):
 
 def record(path=None, on_level=None):
     """Record from the mic until they stop talking, or 25 s."""
-    import sounddevice as sd          # imported late: the Pi has it, laptops may not
+    try:
+        import sounddevice as sd      # imported late: the Pi has it, laptops may not
+    except OSError:                   # PortAudio missing, and installing it needs sudo
+        return _record_arecord(path, on_level)
     with sd.InputStream(samplerate=SR, channels=1, dtype="int16",
                         blocksize=Endpointer().chunk, device=_device()) as s:
         return _capture(lambda n: s.read(n)[0][:, 0], path, on_level)
+
+
+def _alsa_device():
+    """MIXMIND_MIC as an ALSA device for arecord: a name fragment ("USB"),
+    a card number from `arecord -l` ("3"), or a device string ("plughw:3,0").
+    plughw converts whatever the mic delivers to 16 kHz mono for us."""
+    import re, subprocess
+    if not MIC:
+        return None
+    if ":" in MIC:
+        return MIC
+    if MIC.isdigit():
+        return "plughw:%s,0" % MIC
+    cards = subprocess.run(["arecord", "-l"], capture_output=True, text=True).stdout
+    for num, name in re.findall(r"^card (\d+): (.*)$", cards, re.M):
+        if MIC.lower() in name.lower():
+            return "plughw:%s,0" % num
+    raise RuntimeError("MIXMIND_MIC=%r matches no card in `arecord -l`" % MIC)
+
+
+def _record_arecord(path=None, on_level=None):
+    """The same recording loop, fed by ALSA's own recorder. arecord ships on
+    every Raspberry Pi, so this needs no install and no sudo."""
+    import subprocess
+    dev = _alsa_device()
+    cmd = ["arecord", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(SR), "-c", "1"]
+    p = subprocess.Popen(cmd + (["-D", dev] if dev else []),
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    def read(n):
+        b = p.stdout.read(n * 2)
+        if not b and p.poll() not in (None, 0):
+            raise RuntimeError("arecord failed: %s" % p.stderr.read().decode().strip())
+        return np.frombuffer(b, dtype=np.int16) if b else None
+    try:
+        return _capture(read, path, on_level)
+    finally:
+        p.terminate()
+        p.wait()
 
 
 def replay(wav, path=None, on_level=None):
