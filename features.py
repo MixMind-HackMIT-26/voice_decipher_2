@@ -15,6 +15,13 @@ DEFAULTS = dict(pitch_mean_hz=0, pitch_sd_hz=0, loudness_db=-90,
 
 def _read_wav(path):
     with wave.open(path, "rb") as w:
+        # int16 is assumed three lines down. A 24-bit or float wav parses here
+        # without complaint and yields silent nonsense, so refuse it loudly.
+        if w.getsampwidth() != 2:
+            raise ValueError(
+                "%s is %d-bit; need 16-bit PCM wav. Convert it:\n"
+                "  afconvert -f WAVE -d LEI16@16000 -c 1 '%s' out.wav"
+                % (path, w.getsampwidth() * 8, path))
         sr, n = w.getframerate(), w.getnframes()
         raw = np.frombuffer(w.readframes(n), dtype=np.int16).astype(np.float64)
         if w.getnchannels() == 2:
