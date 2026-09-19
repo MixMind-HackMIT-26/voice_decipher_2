@@ -16,10 +16,15 @@ import hashlib
 # throws that feature away. Re-measure in Boston on the real mic:
 #     python local_bartender.py tests/samples/
 RANGES = {
-    "loudness_db":   (-32.0, -12.0),   # handbook §08 defaults
-    "onset_rate_hz": (1.5, 6.0),
-    "pitch_sd_hz":   (10.0, 55.0),
-    "pause_ratio":   (0.15, 0.65),
+    # Calibrated 2026-09-19 on eight iPhone takes (tests/samples, not noisy-*).
+    # Loudness deliberately left at the handbook default: the iPhone's gain
+    # control squeezed all eight into 1.3 dB, and calibrating to that would
+    # turn half a decibel of noise into a swing on the energy axis.
+    # Re-calibrate on the real USB mic in Boston.
+    "loudness_db":   (-32.0, -12.0),
+    "onset_rate_hz": (0.5, 2.1),
+    "pitch_sd_hz":   (18.4, 26.6),
+    "pause_ratio":   (0.045, 0.17),
 }
 
 MIN_DOSE, MAX_DOSE = 10, 80
@@ -177,7 +182,7 @@ def suggest_ranges(folder):
             hi = lo + 1.0
         cur = RANGES[k]
         flag = "" if abs(lo - cur[0]) < abs(cur[1] - cur[0]) * .35 else "   # shifted a lot"
-        print('    "%s": (%.1f, %.1f),%s' % (k, lo, hi, flag))
+        print('    "%s": (%.3g, %.3g),%s' % (k, lo, hi, flag))
     print("}")
     print("\n# paste that over RANGES in local_bartender.py, then re-run the pairs")
 
