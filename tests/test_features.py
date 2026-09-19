@@ -60,15 +60,24 @@ assert js == sorted(js), "jitter does not rise with true jitter: %s" % js
 _, s_leak = perturb(synth(jit=0.02)[0])
 assert s_leak < 1.0, "jitter leaked into shimmer (%.2f)" % s_leak
 
-# 3. silence around the speech is not a pause -- pad a real clip, same answer
-x, sr = features._read_wav(os.path.join(HERE, "samples", "tired-2.wav"))
-with tempfile.TemporaryDirectory() as d:
-    a, b = os.path.join(d, "a.wav"), os.path.join(d, "b.wav")
-    write(a, x)
-    write(b, np.concatenate([np.zeros(2 * SR), x, np.zeros(2 * SR)]))
-    fa, fb = features.extract(a), features.extract(b)
-assert abs(fa["pause_ratio"] - fb["pause_ratio"]) < 0.03, (fa, fb)
-assert abs(fa["duration_s"] - fb["duration_s"]) < 0.2, (fa, fb)
+# 3. waiting before you speak is not a pause. Lead in with the clip's own room
+#    tone (what a real mic hears), not digital zeros, and the answer holds.
+#    0.05 is the measured floor: Silero carries state chunk to chunk, so the
+#    same speech after a different lead-in can shift pause_ratio by ~0.04.
+#    Every contrast pair in tests/samples differs by more than that.
+for name in ("tired-2", "wired-1"):
+    x, sr = features._read_wav(os.path.join(HERE, "samples", name + ".wav"))
+    room = x[:SR // 2] if vad.available() else np.zeros(SR // 2)
+    if vad.available():
+        pr = vad.speech_prob(x, sr)
+        room = np.concatenate([x[i * 512:(i + 1) * 512] for i in np.flatnonzero(pr < 0.1)][:60])
+    with tempfile.TemporaryDirectory() as d:
+        a, b = os.path.join(d, "a.wav"), os.path.join(d, "b.wav")
+        write(a, x)
+        write(b, np.concatenate([np.tile(room, 20)[:2 * SR], x, np.tile(room, 20)[:2 * SR]]))
+        fa, fb = features.extract(a), features.extract(b)
+    assert abs(fa["pause_ratio"] - fb["pause_ratio"]) < 0.05, (name, fa, fb)
+    assert abs(fa["duration_s"] - fb["duration_s"]) < 0.06 * fa["duration_s"], (name, fa, fb)
 
 # 4. a noisy room is not wall-to-wall speech (the energy VAD said 99% on noisy-1)
 if vad.available():

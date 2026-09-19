@@ -98,9 +98,44 @@ def _speech_mask(x, sr, n_frames, fl, hl, fallback):
     probs = vad.speech_prob(x, sr)
     if probs is None or probs.size == 0:
         return fallback, "energy"
+    # Silero's own post-processing defaults (get_speech_timestamps): speech
+    # starts above 0.5 but only ends below 0.35, and a gap counts as silence
+    # only if it lasts 100 ms. Without them, soft speech hovering near 0.5
+    # flickered chunk by chunk, and two seconds of lead-in silence moved
+    # tired-2's pause_ratio from 0.129 to 0.17 -- a third of its calibrated range.
+    on = np.zeros(probs.size, dtype=bool)
+    state = False
+    for k, p in enumerate(probs):
+        state = p > VAD_THRESH if not state else p >= VAD_THRESH - 0.15
+        on[k] = state
+    min_gap = int(np.ceil(0.100 * sr / vad.CHUNK))
+    k = 0
+    while k < on.size:
+        if on[k]:
+            k += 1; continue
+        e = k
+        while e < on.size and not on[e]:
+            e += 1
+        if 0 < k and e < on.size and e - k < min_gap:
+            on[k:e] = True                      # too short to be a pause
+        k = e
+    # ...and a burst under 250 ms is not speech (their min_speech_duration).
+    # A cough or a click before the first word otherwise starts the clock
+    # early, and the wait until they really begin reads as one long pause.
+    min_talk = int(np.ceil(0.250 * sr / vad.CHUNK))
+    k = 0
+    while k < on.size:
+        if not on[k]:
+            k += 1; continue
+        e = k
+        while e < on.size and on[e]:
+            e += 1
+        if e - k < min_talk:
+            on[k:e] = False
+        k = e
     centres = np.arange(n_frames) * hl + fl // 2
     idx = np.minimum(centres // vad.CHUNK, probs.size - 1)
-    return probs[idx] > VAD_THRESH, "silero"
+    return on[idx], "silero"
 
 
 def _perturbation(x, sr, f0, fl, hl):

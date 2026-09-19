@@ -23,8 +23,8 @@ RANGES = {
     # Re-calibrate on the real USB mic in Boston.
     "loudness_db":   (-32.0, -12.0),
     "onset_rate_hz": (0.5, 2.1),
-    "pitch_sd_hz":   (18.4, 26.6),
-    "pause_ratio":   (0.045, 0.17),
+    "pitch_sd_hz":   (19.0, 26.7),
+    "pause_ratio":   (0.018, 0.143),
 }
 
 MIN_DOSE, MAX_DOSE = 10, 80
