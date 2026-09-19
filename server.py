@@ -16,8 +16,11 @@ import argparse, functools, json, os, threading, time, traceback
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-import content, features, listen, local_bartender, transcribe, uno_q, vad
+import content, features, listen, local_bartender, transcribe, uno_q, unoq_http, vad
 
+# Pump number -> what the screen calls it. PLACEHOLDERS: the bottles are not
+# filled yet, so each pump just got a drink. Change the names here when they
+# are; the recipes only ever use pump numbers (1-6 = UNO Q pins D2-D7).
 INGREDIENTS = {"1": "Orange juice", "2": "Cranberry", "3": "Grapefruit",
                "4": "Iced tea", "5": "Apple juice", "6": "Ginger ale"}
 THINK_MIN_S = 4.0     # let the voice dials animate in, even when we are fast
@@ -107,7 +110,9 @@ class Machine:
             speed = getattr(self.board, "speed", 1.0)
             def step(kind, i, n, p):
                 if kind == "pour":
-                    ms = p["ml"] / uno_q.ML_PER_SEC * 1000 / speed
+                    ms = (self.board.ms_for(p["channel"], p["ml"])
+                          if hasattr(self.board, "ms_for")
+                          else p["ml"] / uno_q.ML_PER_SEC * 1000 / speed)
                     self._set(pour={"index": i, "total": n, "channel": p["channel"],
                                     "ml": p["ml"], "duration_ms": int(ms),
                                     "started_at_ms": int(time.time() * 1000)})
@@ -178,14 +183,27 @@ def main():
     ap.add_argument("--ui", default=os.path.expanduser("~/mixmind-ui"),
                     help="the built touchscreen UI (the pi-ui folder)")
     ap.add_argument("--port", type=int, default=8080)
-    ap.add_argument("--board", choices=["serial", "mock"], default="serial")
+    ap.add_argument("--board", choices=["http", "mock", "serial"], default="http",
+                    help="http: the UNO Q over Wi-Fi (the build); mock: no pumps")
+    ap.add_argument("--unoq", default=unoq_http.URL, help="the UNO Q's address")
     ap.add_argument("--serial-port", default=uno_q.PORT)
     ap.add_argument("--replay", help="play this recording instead of using the mic")
     a = ap.parse_args()
 
     if not os.path.isfile(os.path.join(a.ui, "index.html")):
         raise SystemExit("no UI at %s -- copy the pi-ui folder there first" % a.ui)
-    board = uno_q.MockUnoQ(speed=4.0) if a.board == "mock" else uno_q.UnoQ(a.serial_port)
+    if a.board == "http":
+        board = unoq_http.HttpUnoQ(a.unoq)
+        try:
+            board.all_off()                  # reachable? (/stop is always safe)
+        except unoq_http.UnoQError as e:
+            # Start anyway: the touchscreen should come up, and a pour will
+            # show the guest the error screen instead of a dead machine.
+            print("WARNING: %s" % e)
+    elif a.board == "mock":
+        board = uno_q.MockUnoQ(speed=4.0)
+    else:
+        board = uno_q.UnoQ(a.serial_port)
     vad.available()                            # load both models now, not mid-guest
     stt = transcribe.available()
     print("MixMind kiosk on http://0.0.0.0:%d  board: %s  speech-to-text: %s  %s"

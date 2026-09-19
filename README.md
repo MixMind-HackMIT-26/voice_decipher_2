@@ -18,6 +18,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python tests/test_uno_q.py      # the Pi <-> UNO Q link, over a fake board
 .venv/bin/python tests/test_content.py    # speech-to-text and what the words mean
 .venv/bin/python tests/test_server.py     # the kiosk, tap to idle, end to end
+.venv/bin/python tests/test_unoq_http.py  # the Wi-Fi pump link, against a fake UNO Q
 .venv/bin/python record_samples.py        # record your own ten clips
 ```
 
@@ -47,6 +48,30 @@ recording as if it were spoken:
 ```
 .venv/bin/python server.py --ui pi-ui --board mock --port 8090 --replay tests/samples/flat-1.wav
 ```
+
+## The pumps: Pi -> UNO Q over Wi-Fi
+
+`unoq_http.py` speaks the contract from the system handover. The UNO Q runs
+the pumps on D2-D7 (pumps 1-6); the Pi only sends HTTP:
+
+```
+GET http://10.189.87.190:8081/pour?ch=<1-6>&ms=<0-30000>   -> {"ok":true}
+GET http://10.189.87.190:8081/stop                          -> all off
+```
+
+- A pour request lasts the whole pour, so its timeout is `ms/1000 + 5`.
+- Every recipe is checked before any pump runs: 2-6 different pumps, 10-80 ml
+  each, 220 ml at most. If the UNO Q refuses a pump midway, the Pi sends
+  `/stop` straight away.
+- No stirring: channel 7 was the stirrer, which was cut.
+- ml -> milliseconds uses 3.7 ml/s until `calibration.json` exists:
+  `{"1": 3.4, "2": 3.8, ...}` -- one measured number per pump.
+- Pump names on the screen are placeholders in `server.py`'s `INGREDIENTS`.
+- The UNO Q's address changes on DHCP renewal:
+  `MIXMIND_UNOQ=http://<new-ip>:8081 ./kiosk.sh`.
+
+`./kiosk.sh` uses the real pumps; `BOARD=mock ./kiosk.sh` prints instead.
+`uno_q.py` (the UART link) is the older plan, kept as a fallback.
 
 ## Docker
 
