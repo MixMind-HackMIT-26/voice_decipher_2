@@ -176,17 +176,34 @@ def recipe(f, words=None):
 
 
 def suggest_ranges(folder):
-    """Print RANGES calibrated to real recordings. Twenty seconds, once per mic.
+    """Print RANGES calibrated to this microphone. Once per mic, and the mic
+    is what makes it necessary: the same voice reads differently through a
+    phone and through the conference puck, and a range that does not match
+    pins an axis at 0 or 1 so every guest gets the same drink.
+
+    Takes a folder of recordings, or the kiosk's logs/ -- calibrating on real
+    guests at the venue beats clips recorded anywhere else.
 
     Uses the 10th/90th percentile so one shouted clip cannot stretch the scale.
     """
-    import glob, os, features, numpy as np
-    wavs = sorted(glob.glob(os.path.join(folder, "*.wav")))
-    if len(wavs) < 6:
-        print("need at least 6 clips with a real spread; found %d" % len(wavs))
+    import glob, json, os, numpy as np
+    logs = sorted(glob.glob(os.path.join(folder, "*.json")))
+    if logs:
+        F = []
+        for p in logs:
+            try:
+                d = json.load(open(p))
+                if d.get("features", {}).get("duration_s", 0) >= 2.0:
+                    F.append(d["features"])      # skip turns where nobody spoke
+            except Exception:
+                pass
+    else:
+        import features
+        F = [features.extract(w) for w in sorted(glob.glob(os.path.join(folder, "*.wav")))]
+    if len(F) < 6:
+        print("need at least 6 voices with a real spread; found %d in %s" % (len(F), folder))
         return
-    F = [features.extract(w) for w in wavs]
-    print("# calibrated on %d clips in %s" % (len(F), folder))
+    print("# calibrated on %d voices in %s" % (len(F), folder))
     print("RANGES = {")
     for k in ("loudness_db", "onset_rate_hz", "pitch_sd_hz", "pause_ratio"):
         v = np.array([f[k] for f in F], dtype=float)

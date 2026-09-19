@@ -113,7 +113,9 @@ class Machine:
                     ms = (self.board.ms_for(p["channel"], p["ml"])
                           if hasattr(self.board, "ms_for")
                           else p["ml"] / uno_q.ML_PER_SEC * 1000 / speed)
-                    self._set(pour={"index": i, "total": n, "channel": p["channel"],
+                    # the screen counts pours from 1 ("POUR 2 OF 3"); sending 0
+                    # made the first bar light up for the first two pours
+                    self._set(pour={"index": i + 1, "total": n, "channel": p["channel"],
                                     "ml": p["ml"], "duration_ms": int(ms),
                                     "started_at_ms": int(time.time() * 1000)})
                 else:
