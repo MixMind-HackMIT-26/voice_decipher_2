@@ -70,6 +70,9 @@ GET http://10.189.87.190:8081/stop                          -> all off
 ```
 
 - A pour request lasts the whole pour, so its timeout is `ms/1000 + 5`.
+- **The UNO Q's Bridge gives up on any call after 10 s**, though the contract
+  says 30 s -- an 80 ml dose (~21.6 s) failed with "Request 'pour' timed out
+  after 10s". Long pours are sent as back-to-back pieces of at most 9 s.
 - Every recipe is checked before any pump runs: 2-6 different pumps, 10-80 ml
   each, 220 ml at most. If the UNO Q refuses a pump midway, the Pi sends
   `/stop` straight away.

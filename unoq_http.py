@@ -14,6 +14,10 @@ URL = os.environ.get("MIXMIND_UNOQ", "http://10.189.87.190:8081")   # changes on
 ML_PER_SEC = 3.7        # the handover's guess -- calibration.json overrides, per pump
 CAL_FILE = os.environ.get("MIXMIND_CAL", "calibration.json")
 MAX_MS = 30000          # the sketch refuses anything longer
+# The UNO Q's Bridge gives up on any call after 10 s ("Request 'pour' timed out
+# after 10s"), though the sketch itself accepts 30 s. An 80 ml dose is ~21 s,
+# so long pours go out as back-to-back pieces that each fit inside the Bridge.
+CHUNK_MS = 9000
 MIN_ML, MAX_ML, MAX_TOTAL_ML = 10, 80, 220
 
 
@@ -68,9 +72,14 @@ class HttpUnoQ:
         ms = self.ms_for(channel, ml)
         if not 1 <= channel <= 6 or not 0 <= ms <= MAX_MS:
             raise UnoQError("won't send pump %r for %d ms" % (channel, ms))
-        # The request lasts the whole pour: a shorter timeout would give up on
-        # a 10 s pour while the pump is still running and report a failure.
-        return self._get("/pour?ch=%d&ms=%d" % (channel, ms), timeout=ms / 1000 + 5)
+        # Each request lasts its whole piece: a shorter timeout would give up
+        # while the pump is still running and report a failure that wasn't.
+        left = ms
+        while left > 0:
+            part = min(left, CHUNK_MS)
+            self._get("/pour?ch=%d&ms=%d" % (channel, part), timeout=part / 1000 + 5)
+            left -= part
+        return {"ok": True}
 
     def make(self, recipe, on_step=None):
         """Every ingredient in order. Anything goes wrong: all pumps off."""
