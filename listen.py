@@ -60,6 +60,12 @@ class Endpointer:
         self.chunk = vad.CHUNK
         self.heard = False
         self.quiet_for = self.elapsed = 0.0
+        # A click, a breath or the tap on the touchscreen is not the guest
+        # starting to talk. Count them as speaking only after 250 ms of speech
+        # in a row -- the same rule features.py uses (Silero's own default).
+        # Without it, one click then 0.9 s of quiet ended the recording at 1.7 s.
+        self.run = 0
+        self.min_talk = int(np.ceil(0.250 * SR / self.chunk))
 
     def feed(self, block_int16):
         """Feed exactly self.chunk samples. Returns (done, level_db)."""
@@ -69,8 +75,12 @@ class Endpointer:
         dt = len(x) / SR
         self.elapsed += dt
         if speaking:
-            self.heard, self.quiet_for = True, 0.0
+            self.run += 1
+            self.quiet_for = 0.0
+            if self.run >= self.min_talk:
+                self.heard = True
         else:
+            self.run = 0
             self.quiet_for += dt
         done = (self.elapsed >= MAX_S
                 or (self.heard and self.elapsed > MIN_S and self.quiet_for > SILENCE_S)
@@ -78,26 +88,48 @@ class Endpointer:
         return done, db
 
 
-def record(path=None, on_level=None):
-    """Blocking record until they stop talking, or 25 s. Returns the wav path."""
-    import sounddevice as sd          # imported late: the Pi has it, laptops may not
+def _capture(read, path=None, on_level=None):
+    """The recording loop, whatever the audio source. Stops when they stop
+    talking, at 25 s, or when the source runs dry."""
     path = path or tempfile.mktemp(suffix=".wav")
     ep = Endpointer()
     chunks = []
-    with sd.InputStream(samplerate=SR, channels=1, dtype="int16",
-                        blocksize=ep.chunk, device=_device()) as s:
-        while True:
-            buf, _ = s.read(ep.chunk)
-            chunks.append(buf.copy())
-            done, db = ep.feed(buf[:, 0])
-            if on_level: on_level(db)
-            if done:
-                break
-
+    while True:
+        buf = read(ep.chunk)
+        if buf is None or len(buf) < ep.chunk:
+            break
+        chunks.append(buf.copy())
+        done, db = ep.feed(buf)
+        if on_level: on_level(db)
+        if done:
+            break
     with wave.open(path, "wb") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
-        w.writeframes(np.concatenate(chunks).tobytes())
+        w.writeframes(np.concatenate(chunks).tobytes() if chunks else b"")
     return path
+
+
+def record(path=None, on_level=None):
+    """Record from the mic until they stop talking, or 25 s."""
+    import sounddevice as sd          # imported late: the Pi has it, laptops may not
+    with sd.InputStream(samplerate=SR, channels=1, dtype="int16",
+                        blocksize=Endpointer().chunk, device=_device()) as s:
+        return _capture(lambda n: s.read(n)[0][:, 0], path, on_level)
+
+
+def replay(wav, path=None, on_level=None):
+    """Play a recording through the same loop, in real time, as if spoken
+    into the mic -- for testing the kiosk with no microphone (Mac, Docker)."""
+    import time, features
+    x, sr = features._read_wav(wav)
+    pcm = (np.clip(x, -1, 1) * 32767).astype(np.int16)
+    pos = [0]
+    def read(n):
+        time.sleep(n / SR)
+        buf = pcm[pos[0]:pos[0] + n]
+        pos[0] += n
+        return buf
+    return _capture(read, path, on_level)
 
 
 if __name__ == "__main__":

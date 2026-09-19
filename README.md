@@ -17,7 +17,35 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python tests/test_features.py   # measurements checked against known answers
 .venv/bin/python tests/test_uno_q.py      # the Pi <-> UNO Q link, over a fake board
 .venv/bin/python tests/test_content.py    # speech-to-text and what the words mean
+.venv/bin/python tests/test_server.py     # the kiosk, tap to idle, end to end
 .venv/bin/python record_samples.py        # record your own ten clips
+```
+
+## The kiosk: touchscreen UI + pipeline on the Pi
+
+`server.py` serves the touchscreen UI (the `pi-ui` folder from
+[voice-pour-pro-interface](https://github.com/MixMind-HackMIT-26/voice-pour-pro-interface))
+and runs the pipeline behind it, one guest at a time:
+idle -> listening -> thinking -> reveal -> pouring -> serving -> idle.
+Everything runs on the Pi -- no cloud, no keys. The "API" is only the local
+address the page polls.
+
+```
+.venv/bin/python listen.py                               # which mic is which
+MIXMIND_MIC=USB .venv/bin/python server.py --ui ~/mixmind-ui    # the machine
+.venv/bin/python server.py --ui ~/mixmind-ui --board mock       # no UNO Q yet
+```
+
+Then open `http://localhost:8080` on the touchscreen. Recording ends when the
+guest goes quiet for 0.9 s (or at 25 s). A sound under 250 ms -- a click, a
+breath, the tap on the screen -- does not count as starting to talk: without
+that rule one tap ended the recording at 1.7 s.
+
+Test the whole kiosk on a laptop, no mic and no UNO Q, by replaying a
+recording as if it were spoken:
+
+```
+.venv/bin/python server.py --ui pi-ui --board mock --port 8090 --replay tests/samples/flat-1.wav
 ```
 
 ## Docker

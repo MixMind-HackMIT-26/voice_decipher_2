@@ -121,4 +121,16 @@ if vad.available():
     assert stops[0] - talk_end < 2.0, "silero kept recording %.1fs past the end" % (stops[0] - talk_end)
     assert stops[1] >= 24.9, "energy endpointing now copes with noise? update this test"
 
-print("features: YIN, jitter, shimmer, VAD, endpointing, silence trimming, fallback, edge cases -- all pass")
+# 8. the tap on the touchscreen is not the guest talking: a click, 1.5 s of
+#    quiet, then speech must record the speech (it used to stop at 1.7 s)
+if vad.available():
+    import listen
+    y, _ = features._read_wav(os.path.join(HERE, "samples", "tired-1.wav"))
+    click = np.zeros(SR // 2); click[4000:4080] = 0.8
+    with tempfile.TemporaryDirectory() as d:
+        q = os.path.join(d, "tap.wav")
+        write(q, np.concatenate([click, np.zeros(int(1.5 * SR)), y]))
+        rec, _ = features._read_wav(listen.replay(q))
+    assert len(rec) / SR > 10, "a tap ended the recording after %.1f s" % (len(rec) / SR)
+
+print("features: YIN, jitter, shimmer, VAD, endpointing, tap-noise, silence trimming, fallback, edge cases -- all pass")
