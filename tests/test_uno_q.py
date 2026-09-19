@@ -10,7 +10,7 @@ import uno_q
 from fake_board import FakeBoard
 
 RECIPE = {"pours": [{"channel": 1, "ml": 40}, {"channel": 5, "ml": 40},
-                    {"channel": 6, "ml": 60}], "stir_seconds": 6}
+                    {"channel": 6, "ml": 60}], "stir_seconds": 6}   # stir: legacy serial path only
 
 # 1. a whole drink, in order, and the board is left off
 b = FakeBoard(); q = uno_q.UnoQ(b.path)

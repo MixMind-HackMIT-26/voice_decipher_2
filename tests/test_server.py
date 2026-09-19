@@ -6,13 +6,14 @@ import json, os, sys, tempfile, threading, time, urllib.request
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 os.chdir(tempfile.mkdtemp())                       # keep test logs out of the repo
-import server, uno_q
+os.environ["MIXMIND_LLM"] = "off"                  # template lines: deterministic
+import server, transcribe, uno_q
 from http.server import ThreadingHTTPServer
 
 ui = tempfile.mkdtemp()
 open(os.path.join(ui, "index.html"), "w").write("<title>MixMind</title>")
 m = server.Machine(uno_q.MockUnoQ(speed=200), replay=os.path.join(HERE, "tests", "samples", "flat-1.wav"),
-                   timings=(0.2, 0.2, 0.2))
+                   voice=False, timings=(0.2, 0.2, 0.2))
 httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(m, ui))
 threading.Thread(target=httpd.serve_forever, daemon=True).start()
 url = "http://127.0.0.1:%d" % httpd.server_port
@@ -36,6 +37,7 @@ except urllib.error.HTTPError as e:
 
 s = state()
 assert s["state"] == "idle" and s["ingredients"]["1"] and s["recipe"] is None
+assert s["cup"]["size_oz"] == 18 and s["cup"]["max_ml"] <= 130, s["cup"]
 assert post("/api/start") == 200
 assert post("/api/start") == 409                    # one guest at a time
 assert post("/api/stop") == 404                     # no stop button: silence ends it
@@ -52,7 +54,15 @@ while time.time() - t0 < 90:
     time.sleep(0.05)
 
 assert seen == ["listening", "thinking", "reveal", "pouring", "serving", "idle"], seen
-assert snaps["reveal"]["recipe"]["rationale"].startswith("You said you're fine, but"), snaps["reveal"]
+# The "says fine, sounds otherwise" line needs words, so it needs speech-to-text.
+# Without faster-whisper there is no transcript and the plain line is correct.
+if transcribe.available():
+    assert snaps["reveal"]["recipe"]["rationale"].startswith("You said you're fine, but"), snaps["reveal"]
+else:
+    assert snaps["reveal"]["recipe"]["rationale"], snaps["reveal"]
+# the line the machine says out loud reaches the screen too
+assert snaps["reveal"]["speech"] == snaps["reveal"]["recipe"]["rationale"], snaps["reveal"]
+assert snaps["pouring"]["recipe"]["ml_total"] <= 130, snaps["pouring"]["recipe"]
 assert snaps["thinking"]["features"] is None or "pitch_mean_hz" in snaps["thinking"]["features"]
 
 # the guest's recording is gone once it has been used

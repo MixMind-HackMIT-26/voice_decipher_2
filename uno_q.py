@@ -8,7 +8,9 @@ sketch blocks while it pours, so there is never more than one in flight.
     MockUnoQ()        prints instead of pouring -- a laptop with no hardware
 """
 import os, time
-import serial        # pip install pyserial
+# pyserial is imported inside UnoQ, not here: the built machine talks to the
+# UNO Q over Wi-Fi (unoq_http) and has no serial dependency at all, but
+# server.py and pipeline.py still import this module for MockUnoQ.
 
 PORT = os.environ.get("MIXMIND_PORT", "/dev/serial0")
 BAUD = 115200
@@ -21,6 +23,7 @@ class UnoQError(RuntimeError): pass
 
 class UnoQ:
     def __init__(self, port=PORT, baud=BAUD):
+        import serial        # pip install pyserial
         self.ser = serial.Serial(port, baud, timeout=2)
         # Unlike the old USB UNO, opening this UART does not reset the board,
         # so there is no boot window to sleep through -- but a READY line may
@@ -71,7 +74,7 @@ class UnoQ:
             for i, p in enumerate(pours):
                 if on_step: on_step("pour", i, len(pours), p)
                 self.pour(p["channel"], p["ml"])
-            st = recipe.get("stir_seconds", 6)
+            st = recipe.get("stir_seconds", 0)    # the stirrer was cut from the build
             if st:
                 if on_step: on_step("stir", len(pours), len(pours), {"seconds": st})
                 self.stir(st)

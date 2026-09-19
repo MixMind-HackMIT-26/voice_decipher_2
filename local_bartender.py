@@ -27,8 +27,33 @@ RANGES = {
     "pause_ratio":   (0.018, 0.143),
 }
 
-MIN_DOSE, MAX_DOSE = 10, 80
-ACCENT_MAX = 25          # ch3 is an accent; a big pour of it is undrinkable
+# ---------------------------------------------------------------- the cup
+# 18 oz party cups, packed with ice. The ceiling is NOT the cup's volume:
+# ice floats, so every cube displaces liquid upward instead of leaving its
+# gaps free. Worst case is a guest who fills to the brim with ice.
+#
+#   CUP_ML          532     18 US fl oz to the brim
+#   HEADROOM_ML     100     ~20 mm of dry rim -- this gets carried across a
+#                           room by someone holding it in one hand
+#   ICE_PACK       0.60     loose cubes are ~60% ice, ~40% gaps
+#   ICE_SUBMERGED  0.88     ice at 0.917 g/ml floating in juice at ~1.04
+#
+#   liquid room = 532 - 100 - (532 x 1.00 x 0.60 x 0.88) = 151 ml
+#   design max  = 151 / 1.15 = 131 ml   (15% allowed for pump error)
+#
+# So the drink tops out at 130 ml. unoq_http.MAX_TOTAL_ML is the independent
+# safety net a few ml above that: if this file is ever edited badly, the
+# board layer still refuses to pour a cup over the side.
+CUP_ML, HEADROOM_ML = 532, 100
+ICE_PACK, ICE_SUBMERGED, ICE_FILL = 0.60, 0.88, 1.00
+PUMP_TOLERANCE = 0.15
+
+LIQUID_ROOM_ML = CUP_ML - HEADROOM_ML - CUP_ML * ICE_FILL * ICE_PACK * ICE_SUBMERGED
+TARGET_MIN_ML  = 100
+TARGET_MAX_ML  = int(LIQUID_ROOM_ML / (1 + PUMP_TOLERANCE) / 5) * 5     # 130
+
+MIN_DOSE, MAX_DOSE = 10, 60
+ACCENT_MAX = 20          # ch3 is an accent; a big pour of it is undrinkable
 STEP = 5                 # doses in multiples of 5
 
 
@@ -68,7 +93,7 @@ def _pick(w):
 
 
 def _doses(chosen, w, energy):
-    target = 150 + 40 * energy                 # 150-190 ml
+    target = TARGET_MIN_ML + (TARGET_MAX_ML - TARGET_MIN_ML) * energy   # 100-130 ml
     tot = sum(w[c] for c in chosen)
     out = {}
     for c in chosen:
@@ -169,7 +194,7 @@ def recipe(f, words=None):
         "name": NAMES[mood][idx],
         "rationale": _rationale(f, energy, halting, animated, mood, words),
         "pours": pours,
-        "stir_seconds": 6,
+        "ml_total": sum(p["ml"] for p in pours),
         "mood": mood,
         "confidence": round(0.45 + 0.25 * max(abs(energy - .5), abs(halting - .5)) * 2, 2),
     }

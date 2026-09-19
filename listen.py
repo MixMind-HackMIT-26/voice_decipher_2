@@ -1,7 +1,10 @@
 """Mic -> wav. Stream A.
 
-No speech-to-text: MixMind judges how you sound, not what you said, so the
-words never enter the pipeline. See README "Why there is no STT".
+How you sound is what chooses the drink: loudness, pace, pauses, pitch
+movement, all measured in features.py. The words are read too (transcribe.py
+-> content.py), but they only ever nudge the sentence said back to you --
+they never move a pump. That is the whole demo: you say "I'm fine" and the
+voice says otherwise.
 """
 import os, tempfile, wave
 import numpy as np

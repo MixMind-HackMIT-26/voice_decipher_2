@@ -71,20 +71,72 @@ GET http://10.189.87.190:8081/stop                          -> all off
 
 - A pour request lasts the whole pour, so its timeout is `ms/1000 + 5`.
 - **The UNO Q's Bridge gives up on any call after 10 s**, though the contract
-  says 30 s -- an 80 ml dose (~21.6 s) failed with "Request 'pour' timed out
-  after 10s". Long pours are sent as back-to-back pieces of at most 9 s.
-- Every recipe is checked before any pump runs: 2-6 different pumps, 10-80 ml
-  each, 220 ml at most. If the UNO Q refuses a pump midway, the Pi sends
+  says 30 s -- a long dose failed with "Request 'pour' timed out after 10s".
+  Long pours are sent as back-to-back pieces of at most 9 s.
+- Every recipe is checked before any pump runs: 2-6 different pumps, 10-60 ml
+  each, **145 ml at most**. If the UNO Q refuses a pump midway, the Pi sends
   `/stop` straight away.
 - No stirring: channel 7 was the stirrer, which was cut.
-- ml -> milliseconds uses 3.7 ml/s until `calibration.json` exists:
-  `{"1": 3.4, "2": 3.8, ...}` -- one measured number per pump.
-- Pump names on the screen are placeholders in `server.py`'s `INGREDIENTS`.
+- ml -> milliseconds uses 3.7 ml/s until `calibration.json` exists, and says so
+  loudly on startup. `python calibrate.py` measures it: ten seconds per pump
+  into a cup on a kitchen scale, type the grams, it writes the file.
+- Pump names on the screen are `server.py`'s `INGREDIENTS`, and the **bottle
+  order matters**: `local_bartender._weights` is written around
+  1 citrus · 2 tart red · 3 sour accent · 4 sparkling · 5 dark · 6 warm.
 - The UNO Q's address changes on DHCP renewal:
   `MIXMIND_UNOQ=http://<new-ip>:8081 ./kiosk.sh`.
 
 `./kiosk.sh` uses the real pumps; `BOARD=mock ./kiosk.sh` prints instead.
-`uno_q.py` (the UART link) is the older plan, kept as a fallback.
+`uno_q.py` (the UART link) is the older plan, kept as a fallback -- it is the
+only thing that needs pyserial, and it imports it lazily so a Pi without it
+still runs the kiosk.
+
+## The cup: why a drink is 130 ml and not 220
+
+18 oz party cups, packed with ice. The number that matters is not the cup's
+volume, because **ice floats**: it does not leave its gaps free for the
+juice, it displaces liquid upward.
+
+```
+cup to the brim                                        532 ml  (18 US fl oz)
+- dry rim to carry it across a room                   -100 ml
+- ice, brim-full: 532 x 0.60 packing x 0.88 submerged -281 ml
+                                                     = 151 ml of liquid room
+/ 1.15 for pump error                                = 130 ml  <- the ceiling
+```
+
+`local_bartender` aims at 100-130 ml and shows that arithmetic in constants
+you can edit if the cups change. `unoq_http.MAX_TOTAL_ML = 145` is a second,
+independent net: if the recipe engine is ever edited badly, the board layer
+still refuses to pour a cup over the side. `tests/test_cup.py` walks 26,244
+recipes across the whole feature space and checks both, including the case
+where every pump has drifted 15% long.
+
+## The machine talks: `speak.py` + `narrate.py`
+
+The drink was always unique -- doses are continuous, not buckets, so two
+voices get two different glasses. The *sentence* was not: `_rationale()` draws
+on eight phrases across six moods, and sixty guests in one night will hear it
+come round.
+
+- **`narrate.py`** rewrites only the spoken line, from the axes, the mood and
+  the transcript, at temperature 0.9. The recipe is untouched -- it stays
+  deterministic, offline and ~0 ms, and it is what pours. Uses
+  `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; with neither, a timeout, or a reply
+  that does not look like a spoken line, you get the template line back.
+  `MIXMIND_LLM=off` forces the template.
+- **`speak.py`** says it out loud: OpenAI TTS when there is a key and network,
+  `espeak-ng` when there is not, `say` on a Mac. Pin the speaker by name the
+  way the mic is pinned -- `MIXMIND_SPK=UACDemo` -- because card numbers move
+  after a reboot. Cloud audio is cached in `tts_cache/`, and the fixed lines
+  are fetched at startup, not while a guest is standing there.
+
+The pour now runs **under** the voice. The old kiosk read the line for 8 s in
+silence and only then poured; it now starts talking, waits 2.5 s so the name
+lands, and pours while it talks -- about 8 s off every guest.
+
+Neither is required. `--no-voice` mutes the machine, and with no keys at all
+it still pours exactly the same drinks.
 
 ## Docker
 
@@ -161,13 +213,27 @@ path carries on.
 
 ```
 mic -> Pi: listen.py -> features.py   \
-                        transcribe.py -> content.py -> local_bartender.py -> uno_q.py
-                                                                 | 3 wires, UART
-                                        UNO Q STM32: unoq/sketch -> relays -> pumps
+                        transcribe.py -> content.py -> local_bartender.py
+                                              |                    |
+                                          narrate.py           unoq_http.py
+                                              |                    | Wi-Fi, HTTP
+                                          speak.py            UNO Q Linux :8081
+                                              |                    | Bridge
+                                          speaker             STM32 -> relays -> pumps
 ```
 
-The Pi does the listening and thinking; the UNO Q's microcontroller switches
-the pumps. `pipeline.py` is the whole loop: press Enter, talk, it pours.
+The Pi does the listening, the thinking and the talking; the UNO Q's
+microcontroller switches the pumps. `pipeline.py` is the whole loop from a
+terminal, `server.py` is the same loop behind the touchscreen.
+
+## The older UART plan -- NOT what was built
+
+Everything in this section describes three wires between the Pi's GPIO UART
+and the UNO Q's D0/D1. **It is not how the machine works.** The build went
+over Wi-Fi (`unoq_http.py`, above) because the UNO Q's single USB-C port
+belongs to its Linux side and will not act as a serial peripheral of the Pi.
+`uno_q.py` and this section are kept so `--board serial` still has a home and
+so nobody re-tries the USB route; see the system handover, Section 7.
 
 ### Wire it -- three wires, no level shifter
 
@@ -182,10 +248,21 @@ its Linux side, not the microcontroller, so the old "plug the UNO into the
 Pi's USB and send `P3 2400`" setup does not exist on this board. D0/D1 are the
 microcontroller's own UART (`Serial1`).
 
-Relays: pumps 1-6 on **D2-D7**, stirrer on **D8**. **The UNO Q drives 3.3 V,
-and the relay board was chosen for a 5 V UNO** -- with an active-low board on
-5 V, a 3.3 V "off" can leave a relay half on. Power the relay board's VCC
-(logic side) from **3.3 V**, keep **JD-VCC on 5 V** for the coils.
+Relays: pumps 1-6 on **D2-D7**. Channel 7 (D8) was the stirrer, which was cut.
+
+**The relay board in this build is a ZY-OCR-08S opto-isolated board with a
+single `V+`/`V-` pair -- it has no `JD-VCC` jumper**, so the usual "3.3 V on
+VCC, 5 V on JD-VCC" advice does not apply and there is nothing to split.
+
+The real problem is that the UNO Q drives **3.3 V** into opto-LED anodes fed
+from 5 V: driving a pin HIGH for "off" still leaves ~1.7 V across the LED, and
+the relay sits half on. The fix is in the sketch, not the wiring -- **off is
+high-impedance**, not high:
+
+```c
+void chOn (int p) { pinMode(p, OUTPUT); digitalWrite(p, LOW); }
+void chOff(int p) { pinMode(p, INPUT); }          // floating, not 3.3 V
+```
 
 ### UNO Q: upload the sketch
 
@@ -272,18 +349,32 @@ Every pause and pace check passes. Every loudness failure is the iPhone's
 automatic gain control, which squeezed all eight re-recorded clips into
 1.3 dB -- it will re-test on the real USB mic.
 
-## Calibration
+## Calibration -- two different things, both needed
 
-`RANGES` in `local_bartender.py` maps each feature onto 0..1 and is specific to
-the microphone. Re-derive it on the real mic:
+**1. The pumps** (`calibration.json`). Peristaltic rate depends on the pump and
+the tubing, so a guessed 3.7 ml/s makes every dose wrong by however wrong it
+is. Ten minutes, once:
 
 ```
+.venv/bin/python calibrate.py            # all six, 10 s each, type the grams
+.venv/bin/python calibrate.py --check    # pour 100 ml and weigh what lands
+```
+
+**2. The microphone** (`RANGES` in `local_bartender.py`). Maps each feature onto
+0..1 and is specific to the mic and the room. A range that does not match the
+hardware silently pins an axis at 0 or 1 and throws that feature away:
+
+```
+.venv/bin/python record_samples.py       # 8-10 clips with a real spread
 .venv/bin/python local_bartender.py tests/samples/
 ```
 
 ## Known limits
 
-- Loudness is untested on a mic without gain control.
+- `RANGES` is still calibrated on iPhone takes. Loudness is untested on a mic
+  without gain control -- re-run the two steps above on the USB mic.
+- The narrator needs an API key; without one every guest hears a line drawn
+  from the same eight phrases.
 - `noisy-1/-2` are from an older, shorter recording session.
 - Timing is from a laptop; check it against the 400 ms budget on the Pi.
 - `0` jitter/shimmer means too few clean voice cycles, not a perfect voice.
