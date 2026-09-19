@@ -1,4 +1,4 @@
-"""Record the real voice clips the bakeoff needs. Run this before compare.py.
+"""Record the real voice clips the bakeoff needs. Then run eval_voice.py.
 
     python record_samples.py
 
@@ -50,7 +50,7 @@ def main():
         print("  saved %s  %s" % (path, features.extract(path)))
 
     print("\nall takes recorded. now run:")
-    print("  python compare.py %s" % OUT)
+    print("  python eval_voice.py %s" % OUT)
     return 0
 
 
