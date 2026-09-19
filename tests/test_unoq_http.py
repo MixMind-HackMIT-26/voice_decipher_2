@@ -35,11 +35,10 @@ b = unoq_http.HttpUnoQ("http://127.0.0.1:%d" % srv.server_port)
 b.rates = [370.0] * 6              # 100x faster pumps so the test is quick
 
 # 1. a drink: pumps in order, the right lengths, and never the stirrer
-r = {"pours": [{"channel": 1, "ml": 40}, {"channel": 5, "ml": 50}, {"channel": 6, "ml": 60}],
-     "stir_seconds": 6}
+r = {"pours": [{"channel": 1, "ml": 35}, {"channel": 5, "ml": 50}, {"channel": 6, "ml": 45}]}
 steps = []
 b.make(r, on_step=lambda k, i, n, p: steps.append((k, p["channel"])))
-assert seen == ["/pour?ch=1&ms=108", "/pour?ch=5&ms=135", "/pour?ch=6&ms=162"], seen
+assert seen == ["/pour?ch=1&ms=95", "/pour?ch=5&ms=135", "/pour?ch=6&ms=122"], seen
 assert steps == [("pour", 1), ("pour", 5), ("pour", 6)], steps
 
 # 2. a long pour is a long request -- it must not time out mid-pour
@@ -63,7 +62,7 @@ for bad in ({"pours": [{"channel": 1, "ml": 40}]},                              
             {"pours": [{"channel": 7, "ml": 40}, {"channel": 1, "ml": 40}]},         # no pump 7
             {"pours": [{"channel": 1, "ml": 90}, {"channel": 2, "ml": 40}]},         # dose too big
             {"pours": [{"channel": 1, "ml": 40}, {"channel": 1, "ml": 40}]},         # same pump twice
-            {"pours": [{"channel": c, "ml": 80} for c in (1, 2, 3)]}):               # 240 ml
+            {"pours": [{"channel": c, "ml": 60} for c in (1, 2, 3)]}):               # 180 ml: over the cup
     seen.clear()
     try:
         b.make(bad); raise AssertionError("poured %r" % bad)

@@ -14,7 +14,11 @@ URL = os.environ.get("MIXMIND_UNOQ", "http://10.189.87.190:8081")   # changes on
 ML_PER_SEC = 3.7        # the handover's guess -- calibration.json overrides, per pump
 CAL_FILE = os.environ.get("MIXMIND_CAL", "calibration.json")
 MAX_MS = 30000          # the sketch refuses anything longer
-MIN_ML, MAX_ML, MAX_TOTAL_ML = 10, 80, 220
+# The safety net for the 18 oz cups: local_bartender aims at 130 ml and
+# shows its working; this refuses anything that would go over the side even
+# if that file is wrong. 151 ml is the measured liquid room above a cup
+# brim-full of floating ice -- stop short of it.
+MIN_ML, MAX_ML, MAX_TOTAL_ML = 10, 60, 145
 
 
 class UnoQError(RuntimeError): pass
@@ -42,11 +46,17 @@ class HttpUnoQ:
         self.url = url.rstrip("/")
         self.version = "UNO Q at %s" % self.url
         self.rates = [ML_PER_SEC] * 6
+        self.calibrated = False
         try:                                     # {"1": 3.4, ..., "6": 3.9}
             cal = json.load(open(CAL_FILE))
             self.rates = [float(cal[str(i)]) for i in range(1, 7)]
+            self.calibrated = True
+            self.version += " (calibrated %s)" % cal.get("_measured_at", "?")
         except (OSError, KeyError, ValueError):
-            pass
+            # Silence here is how every dose ends up quietly wrong. Ten minutes
+            # with a scale and calibrate.py fixes it for the whole weekend.
+            print("WARNING: no usable %s -- all six pumps assumed %.1f ml/s. "
+                  "Run `python calibrate.py`." % (CAL_FILE, ML_PER_SEC))
 
     def _get(self, path, timeout):
         try:

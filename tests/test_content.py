@@ -4,7 +4,7 @@ the drink. Run: python tests/test_content.py
 import os, random, sys
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
-import content, features, local_bartender as lb, transcribe
+import content, unoq_http, features, local_bartender as lb, transcribe
 
 # 1. the okay-claim: the phrase that makes the demo, and the ones that must not
 for text, want in [
@@ -21,8 +21,9 @@ for text, want in [
 def pourable(r):
     ch = [p["channel"] for p in r["pours"]]
     assert 2 <= len(ch) <= 4 and len(set(ch)) == len(ch) and all(1 <= c <= 6 for c in ch), r
-    assert all(10 <= p["ml"] <= 80 and p["ml"] % 5 == 0 for p in r["pours"]), r
-    assert 120 <= sum(p["ml"] for p in r["pours"]) <= 220, r
+    assert all(10 <= p["ml"] <= 60 and p["ml"] % 5 == 0 for p in r["pours"]), r
+    assert 100 <= sum(p["ml"] for p in r["pours"]) <= 130, r
+    unoq_http.validate(r)          # the board layer would accept it too
     assert not any(c.isdigit() for c in r["rationale"]), "said a number to a guest: " + r["rationale"]
 random.seed(2)
 for _ in range(2000):
