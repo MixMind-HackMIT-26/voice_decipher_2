@@ -112,11 +112,12 @@ come round.
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; with neither, a timeout, or a reply
   that does not look like a spoken line, you get the template line back.
   `MIXMIND_LLM=off` forces the template.
-- **`speak.py`** says it out loud: OpenAI TTS when there is a key and network,
-  `espeak-ng` when there is not, `say` on a Mac. Pin the speaker by name the
-  way the mic is pinned -- `MIXMIND_SPK=UACDemo` -- because card numbers move
-  after a reboot. Cloud audio is cached in `tts_cache/`, and the fixed lines
-  are fetched at startup, not while a guest is standing there.
+- **`speak.py`** says it out loud: **Deepgram Aura**, then OpenAI TTS, then
+  `espeak-ng` offline (`say` on a Mac). Pin the speaker by name the way the
+  mic is pinned -- `MIXMIND_SPK=UACDemo` -- because card numbers move after a
+  reboot. Cloud audio is cached in `tts_cache/` under a key that includes the
+  voice, and the fixed lines are fetched at startup, not while a guest is
+  standing there.
 
 The pour now runs **under** the voice. The old kiosk read the line for 8 s in
 silence and only then poured; it now starts talking, waits 2.5 s so the name
@@ -286,6 +287,52 @@ too: `pipeline.py --port /dev/ttyUSB0`.
 `fake_board.py` answers exactly like the sketch through a real virtual serial
 port, so the Pi's serial code runs for real. Drop `--wav` to use the mic.
 
+## Deepgram (Aura + nova-3)
+
+Both are optional layers over a machine that already works offline, and both
+are one HTTP POST with **no SDK and no new dependency** -- `urllib` only.
+
+```
+export DEEPGRAM_API_KEY=...
+```
+
+**Speech to text -- `transcribe.py`.** nova-3 instead of faster-whisper:
+
+```
+POST https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&language=en
+     Authorization: Token $DEEPGRAM_API_KEY
+     Content-Type: audio/wav          <- the recording, as bytes
+  -> results.channels[0].alternatives[0].transcript
+```
+
+Worth it on a Pi: there is no 75 MB model to download over hotel wifi, nothing
+loaded into RAM, and the words are better than `tiny.en`'s 79-86%. The cost is
+that a 20 s clip is a 640 KB upload, so on a bad hotspot it can be the slow
+part. `MIXMIND_DG_STT_TIMEOUT` (default 8 s) bounds it and Whisper picks up
+the pieces.
+
+```
+MIXMIND_STT=auto        Deepgram if there is a key, else Whisper   (default)
+MIXMIND_STT=deepgram    Deepgram only
+MIXMIND_STT=whisper     Whisper only -- the fully offline machine
+```
+
+**Text to speech -- `speak.py`.** Aura-2, tried before OpenAI:
+
+```
+POST https://api.deepgram.com/v1/speak?model=aura-2-arcas-en&encoding=linear16&container=wav
+     Authorization: Token $DEEPGRAM_API_KEY
+     {"text": "..."}     -> a playable wav, header and all
+```
+
+`encoding=linear16&container=wav` is the reason it is first: the reply goes
+straight to `aplay` and the Pi never decodes an mp3.
+`MIXMIND_DG_VOICE=aura-2-cordelia-en` for a warmer one.
+
+Neither is load-bearing. `tests/test_voice.py` checks that an absent key is
+skipped, a bad key falls through in both directions without an exception, and
+the machine still pours the same drinks with no network at all.
+
 ## What it measures
 
 | feature | what it hears | how |
@@ -362,6 +409,8 @@ hardware silently pins an axis at 0 or 1 and throws that feature away:
   without gain control -- re-run the two steps above on the USB mic.
 - The narrator needs an API key; without one every guest hears a line drawn
   from the same eight phrases.
+- Deepgram STT uploads the whole recording, so it is only as quick as the
+  uplink. On a slow hotspot, `MIXMIND_STT=whisper`.
 - `noisy-1/-2` are from an older, shorter recording session.
 - Timing is from a laptop; check it against the 400 ms budget on the Pi.
 - `0` jitter/shimmer means too few clean voice cycles, not a perfect voice.

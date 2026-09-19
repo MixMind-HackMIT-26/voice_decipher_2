@@ -72,7 +72,7 @@ def one_drink(board, wav=None, voice=True):
     with open(os.path.join("logs", "%d.json" % time.time()), "w") as f:
         json.dump({"at": time.strftime("%F %T"), "wav": wav, "features": feats,
                    "words": words, "recipe": recipe, "spoken": spoken,
-                   "timings": t, "voice": speak.LAST,
+                   "timings": t, "voice": speak.LAST, "stt": transcribe.BACKEND,
                    "narrator": narrate.available(),
                    "vad": features.LAST_BACKEND}, f, indent=2)
 
@@ -99,11 +99,11 @@ def main():
         board = uno_q.UnoQ(a.serial_port)
 
     vad.available()                      # load both models now, not mid-guest
-    stt = transcribe.available()
+    transcribe.available()               # load Whisper now if it is the one
     voice = not a.no_voice
     print("MixMind  board %s  VAD %s  speech-to-text %s  voice %s  narrator %s"
           % (board.version, "silero" if vad.available() else "energy",
-             transcribe.MODEL if stt else "OFF (%s)" % transcribe.LAST_ERROR,
+             transcribe.describe(),
              speak.available() if voice else "MUTED", narrate.available()))
     print("         18 oz cups with ice -- pours capped at %d ml\n"
           % local_bartender.TARGET_MAX_ML)

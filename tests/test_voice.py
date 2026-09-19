@@ -52,3 +52,46 @@ assert not t.is_alive(), "speak.say() hung -- it would hold a guest at the machi
 
 print("voice: narrator falls back on no key / bad key / off, junk replies refused, "
       "speak never raises and never hangs -- all pass")
+
+
+# ---- Deepgram: sponsor tech, but never a single point of failure ----
+import transcribe
+import numpy as np
+
+x = (np.sin(np.arange(16000 * 2) * 0.05) * 0.2).astype(np.float32)   # 2 s of tone
+
+# 6. no key -> speak falls past Deepgram, transcribe falls past it too
+for k in ("DEEPGRAM_API_KEY",):
+    os.environ.pop(k, None)
+assert speak._deepgram_wav("hello") is None
+assert transcribe._deepgram(x, 16000) is None
+assert "deepgram" not in transcribe._order()
+
+# 7. a key that cannot work -> still no exception out of either
+os.environ["DEEPGRAM_API_KEY"] = "not-a-real-deepgram-key"
+transcribe.DG_TIMEOUT_S = 5.0
+speak.TIMEOUT_S = 5.0
+assert transcribe._order()[0] == "deepgram"
+assert transcribe.transcribe(x, 16000) == ""        # falls through to whisper, then ""
+assert speak.speak("MixMind deepgram fallback test") in ("", "espeak"), speak.LAST
+assert "deepgram" in speak.available()
+
+# 8. the wav we upload is a real 16-bit mono wav, not raw floats
+import io, wave
+w = wave.open(io.BytesIO(transcribe._wav_bytes(x, 16000)))
+assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, 16000)
+assert w.getnframes() == len(x)
+
+# 9. switching voices must not replay the old one out of the cache
+assert speak._cached("hi", "aura-2-arcas-en") != speak._cached("hi", "gpt-4o-mini-tts/ballad")
+
+# 10. MIXMIND_STT pins the backend
+transcribe.WANT = "whisper"
+assert transcribe._order() == ["whisper"]
+transcribe.WANT = "deepgram"
+assert transcribe._order() == ["deepgram"]
+transcribe.WANT = "auto"
+del os.environ["DEEPGRAM_API_KEY"]
+
+print("deepgram: absent key skipped, bad key falls through in both directions, "
+      "upload is a valid wav, cache keys are per-voice, MIXMIND_STT pins -- all pass")

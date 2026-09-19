@@ -3,5 +3,6 @@ onnxruntime    # Silero VAD. Optional: without it, features.py falls back to ene
 sounddevice    # only for recording (listen.py, record_samples.py, eval_voice.py --live)
 pyserial       # OPTIONAL: only for --board serial. The build talks to the
                # UNO Q over Wi-Fi (unoq_http.py) and needs none of this.
-faster-whisper # speech-to-text, offline (transcribe.py). Run `python transcribe.py` once online
+faster-whisper # OPTIONAL: offline speech-to-text (transcribe.py). Not needed with
+               # DEEPGRAM_API_KEY set. Run `python transcribe.py` once online.
 vaderSentiment # sentiment of the words (content.py)

@@ -61,7 +61,9 @@ if transcribe.available():
         # Measured: base.en 90-98% of the script (Mac, Linux arm64); tiny.en,
         # the Pi default, 79-86%. The bar sits under each, far above a wrong
         # model or broken audio. "fine" must survive -- the demo hangs on it.
-        floor = 0.70 if transcribe.MODEL.startswith("tiny") else 0.85
+        # nova-3 should beat tiny.en comfortably; don't hold it to tiny's bar
+        floor = (0.85 if transcribe.BACKEND == "deepgram"
+                 else 0.70 if transcribe.MODEL.startswith("tiny") else 0.85)
         assert recall(text) >= floor, (n, transcribe.MODEL, round(recall(text), 2), text)
         assert "fine" in text.lower(), (n, text)
         f = features.extract(os.path.join(HERE, "tests", "samples", n + ".wav"))

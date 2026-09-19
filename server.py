@@ -122,6 +122,7 @@ class Machine:
             words = content.analyze(text, feats["duration_s"])
             recipe = local_bartender.recipe(feats, words)
             log.update(features=feats, words=words, recipe=recipe,
+                       stt=transcribe.BACKEND,
                        think_s=round(time.time() - t1, 2))
             self._set(features=feats)
 
@@ -255,7 +256,7 @@ def main():
     else:
         board = uno_q.UnoQ(a.serial_port)
     vad.available()                            # load both models now, not mid-guest
-    stt = transcribe.available()
+    transcribe.available()                     # load Whisper now if it is the one
     voice = not a.no_voice
     if voice:
         # The fixed lines get fetched and cached now. Paying a round trip for
@@ -268,7 +269,7 @@ def main():
     print("MixMind kiosk on http://0.0.0.0:%d\n"
           "  board %s\n  speech-to-text %s\n  voice %s\n  narrator %s\n"
           "  cup %d oz, pours capped at %d ml\n  %s"
-          % (a.port, board.version, transcribe.MODEL if stt else "OFF",
+          % (a.port, board.version, transcribe.describe(),
              speak.available() if voice else "MUTED (--no-voice)", narrate.available(),
              CUP["size_oz"], local_bartender.TARGET_MAX_ML,
              "REPLAYING " + a.replay if a.replay else "mic"))
