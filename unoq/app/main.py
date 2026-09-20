@@ -49,7 +49,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif u.path == "/scale":
                 extra["cpdg"] = Bridge.call("lcScale", int(q["cpdg"][0]))
             elif u.path == "/raw":
-                extra["raw"] = Bridge.call("lcRaw")
+                raw = Bridge.call("lcRaw")
+                if raw == 2147483647:
+                    raise ValueError("HX711 not answering -- check VCC on 3.3V, "
+                                     "DT on D9, SCK on D10")
+                extra["raw"] = raw
             elif u.path == "/stop":
                 Bridge.call("stop")
             else:

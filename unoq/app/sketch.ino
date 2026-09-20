@@ -40,6 +40,11 @@ const long MAX_DG   = 800;     // 80 g: more than any single ingredient
 const long RUNAWAY_DG = 150;   // cup lifted mid-pour: 15 g lighter, stop
 const int  SETTLE_MS  = 250;   // let the last drops land before measuring
 
+// A real reading is 24-bit signed, so it can never be this. Returning 0 for
+// "the chip did not answer" was indistinguishable from a chip answering zero,
+// which is exactly what an empty tared scale reads.
+const long LC_NONE = 2147483647L;
+
 long lcOffset = 0;
 long lcCountsPerDg = 0;        // 0 = not calibrated -> closed loop refused
 
@@ -98,7 +103,7 @@ long lcDg() {                              // tenths of a gram, 0 if no scale
 /* ------------------------------------------------------ Bridge surface */
 int lcRaw() {
   long raw;
-  if (!lcRead(8, &raw)) return 0;
+  if (!lcRead(8, &raw)) return (int)LC_NONE;
   return (int)raw;
 }
 
