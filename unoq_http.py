@@ -28,6 +28,13 @@ LC_FILE  = os.environ.get("MIXMIND_LOADCELL", "loadcell.json")
 JUICE_GML = 1.04        # grams per millilitre: juice, not water
 TOL_DG   = 30           # a weighed pour more than 3 g off target is reported
 MAX_MS = 30000          # the sketch refuses anything longer
+# The App Lab Bridge gives up on an RPC after 10 s, and the sketch blocks for
+# the whole pour -- so any single pour over 10 s kills the call and the drink,
+# even though the pump was running perfectly. 55 ml at 5 ml/s is 11 s, so this
+# is most of a normal drink, not an edge case. Pour in bites instead.
+# A peristaltic pump restarts cleanly; the seam costs a few tenths of a ml,
+# and with the load cell fitted it costs nothing at all.
+BRIDGE_MAX_MS = 8000
 # The safety net for the 18 oz cups: local_bartender aims at 130 ml and
 # shows its working; this refuses anything that would go over the side even
 # if that file is wrong. 151 ml is the measured liquid room above a cup
@@ -215,9 +222,15 @@ class HttpUnoQ:
         ms = self.ms_for(channel, ml)
         if not 1 <= channel <= 6 or not 0 <= ms <= MAX_MS:
             raise UnoQError("won't send pump %r for %d ms" % (channel, ms))
-        # The request lasts the whole pour: a shorter timeout would give up on
-        # a 10 s pour while the pump is still running and report a failure.
-        return self._get("/pour?ch=%d&ms=%d" % (channel, ms), timeout=ms / 1000 + 5)
+        left, out = ms, None
+        while left > 0:
+            step = min(left, BRIDGE_MAX_MS)
+            # The request lasts the whole bite: a shorter timeout would give up
+            # while the pump is still running and report a failure.
+            out = self._get("/pour?ch=%d&ms=%d" % (channel, step),
+                            timeout=step / 1000 + 6)
+            left -= step
+        return out
 
     def pour_weighed(self, channel, ml):
         """Run the pump until the cup gains this much. Returns the ml that
@@ -227,16 +240,27 @@ class HttpUnoQ:
         # an empty bottle has to end the pour even though the weight never
         # arrives. Generous, because being slow is normal and stopping a good
         # pour early is not.
-        maxms = min(MAX_MS, int(self.ms_for(channel, ml) * 1.8) + 2500)
-        try:
-            out = self._get("/pour_to?ch=%d&dg=%d&maxms=%d" % (channel, dg, maxms),
-                            timeout=maxms / 1000 + 6)
-        except UnoQError as e:
-            if "no scale" in str(e):
-                self.weighing = False          # it went quiet: stop asking
-                return None
-            raise
-        return out.get("dg", 0) / 10.0 / JUICE_GML
+        budget = min(MAX_MS, int(self.ms_for(channel, ml) * 1.8) + 2500)
+        got, spent, idle = 0, 0, 0
+        while got < dg and spent < budget:
+            step = min(BRIDGE_MAX_MS, budget - spent)   # same 10 s Bridge limit
+            try:
+                out = self._get("/pour_to?ch=%d&dg=%d&maxms=%d"
+                                % (channel, dg - got, step), timeout=step / 1000 + 6)
+            except UnoQError as e:
+                if "no scale" in str(e):
+                    self.weighing = False      # it went quiet: stop asking
+                    return None
+                raise
+            landed = out.get("dg", 0)
+            got += landed
+            spent += step
+            # Nothing arriving twice running means a blocked tube or an empty
+            # bottle. Keeping the pump on for the full budget would not help.
+            idle = idle + 1 if landed <= 0 else 0
+            if idle >= 2:
+                break
+        return got / 10.0 / JUICE_GML
 
     def make(self, recipe, on_step=None):
         """Every ingredient in order. Anything goes wrong: all pumps off.

@@ -112,6 +112,23 @@ def _capture(read, path=None, on_level=None):
     return path
 
 
+class _hush:
+    """Swallow the C library's stderr. PortAudio prints three lines of ALSA
+    internals straight from C every time a mic refuses a sample rate -- it
+    goes round Python's sys.stderr, so only the file descriptor can stop it.
+    A working machine should not look like a crashing one."""
+    def __enter__(self):
+        import os
+        self.null = os.open(os.devnull, os.O_WRONLY)
+        self.saved = os.dup(2)
+        os.dup2(self.null, 2)
+        return self
+    def __exit__(self, *a):
+        import os
+        os.dup2(self.saved, 2)
+        os.close(self.saved); os.close(self.null)
+
+
 def record(path=None, on_level=None):
     """Record from the mic until they stop talking, or 25 s.
 
@@ -126,12 +143,12 @@ def record(path=None, on_level=None):
     except OSError:                   # PortAudio missing, and installing it needs sudo
         return _record_arecord(path, on_level)
     try:
-        with sd.InputStream(samplerate=SR, channels=1, dtype="int16",
-                            blocksize=Endpointer().chunk, device=_device()) as s:
+        with _hush():
+            stream = sd.InputStream(samplerate=SR, channels=1, dtype="int16",
+                                    blocksize=Endpointer().chunk, device=_device())
+        with stream as s:
             return _capture(lambda n: s.read(n)[0][:, 0], path, on_level)
-    except Exception as e:
-        print("  [listen] sounddevice could not open the mic at %d Hz (%s)"
-              "\n  [listen] falling back to arecord, which resamples" % (SR, e))
+    except Exception:
         return _record_arecord(path, on_level)
 
 
@@ -143,8 +160,9 @@ def backend():
         return "arecord %s (no PortAudio)" % (_alsa_device() or "default")
     try:
         d = _device()
-        sd.InputStream(samplerate=SR, channels=1, dtype="int16",
-                       blocksize=Endpointer().chunk, device=d).close()
+        with _hush():
+            sd.InputStream(samplerate=SR, channels=1, dtype="int16",
+                           blocksize=Endpointer().chunk, device=d).close()
         return "sounddevice device %s @ %d Hz" % (d, SR)
     except Exception as e:
         try:
