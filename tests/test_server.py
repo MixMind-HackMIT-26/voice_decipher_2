@@ -53,7 +53,11 @@ while time.time() - t0 < 90:
         break
     time.sleep(0.05)
 
-assert seen == ["listening", "thinking", "reveal", "pouring", "serving", "idle"], seen
+assert seen == ["greeting", "listening", "thinking", "reveal", "pouring", "serving", "idle"], seen
+# the machine speaks first, and what it asked is on screen while it asks
+assert snaps["greeting"]["speech"] in server.OPENERS, snaps["greeting"]["speech"]
+# ...and the question is cleared once the guest is the one talking
+assert snaps["listening"]["speech"] is None, snaps["listening"]
 # The "says fine, sounds otherwise" line needs words, so it needs speech-to-text.
 # Without faster-whisper there is no transcript and the plain line is correct.
 if transcribe.available():

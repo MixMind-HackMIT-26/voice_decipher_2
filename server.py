@@ -12,7 +12,7 @@ Then open http://localhost:8080 on the touchscreen.
 The UI polls GET /api/state and sends POST /api/start (tap to speak) and
 /api/reset (Try again). Recording ends when the guest goes quiet.
 """
-import argparse, functools, json, os, threading, time, traceback
+import argparse, functools, json, os, random, threading, time, traceback
 import env  # noqa: F401  -- loads ~/.mixmind.env
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -41,6 +41,27 @@ NARRATE_S = 5.0       # how long the narrator gets, under the drink's name
 REVEAL_LEAD_S = 2.5   # the name lands and the voice starts, THEN the pumps run
 SERVE_S = 7.0         # "take your drink", then back to idle
 SERVE_LINE = "That is yours. Give it a stir and mind the ice."
+
+# The machine speaks first. A guest asked a question talks more, and talks
+# more naturally, than a guest told to "tap and speak" -- and how much they
+# say is the raw material every measurement is made from.
+#
+# All of these are open-ended on purpose: "how was your day" gets a sentence,
+# "did you have a good day" gets the word "yes" and nothing to measure. They
+# are spoken from cache (warmed at startup), so there is no wait and no
+# per-guest cost -- and eight of them is enough that nobody standing at the
+# machine hears the same one twice.
+OPENERS = [
+    "Right, you're up. So how's your day actually been?",
+    "Tell me about your day. Take your time, I'm not busy.",
+    "So. What kind of day has it been?",
+    "Go on then — how's the day treating you?",
+    "Talk to me. How are you doing, really?",
+    "Long day? Tell me about it.",
+    "You've got my attention. How's it going?",
+    "Before I pour anything — how's your day been?",
+]
+GREET = os.environ.get("MIXMIND_GREET", "on").lower() not in ("off", "0", "no")
 
 
 class GuestError(Exception):
@@ -106,8 +127,29 @@ class Machine:
         log = {"at": time.strftime("%F %T")}
         wav = None
         try:
+            # The machine asks first, and WAITS for its own voice to finish.
+            # The mic and the speaker are a foot apart: start listening early
+            # and the first thing the machine records is itself, which lands
+            # in the features as a confident, fluent, articulate guest.
+            if GREET:
+                opener = random.choice(OPENERS)
+                log["opener"] = opener
+                self._set(state="greeting", speech=opener, level_db=-60.0,
+                          elapsed_s=0.0, features=None, recipe=None, pour=None,
+                          error=None, reset=True)
+                if self.voice:
+                    try:
+                        speak.speak(opener)          # blocking, deliberately
+                    except Exception:
+                        pass
+                    time.sleep(0.35)                 # let the room settle
+                else:
+                    time.sleep(1.2)                  # muted: still show the question
+
             self._set(state="listening", level_db=-60.0, elapsed_s=0.0, features=None,
                       recipe=None, pour=None, error=None, reset=True)
+            if GREET:
+                self._set(speech=None)               # the question is answered now
             t0 = time.time()
 
             def level(db):
@@ -283,7 +325,7 @@ def main():
         # The fixed lines get fetched and cached now. Paying a round trip for
         # "that is yours" while a guest stands there is the kind of thing you
         # only notice at 2 am with a queue.
-        speak.warm([SERVE_LINE,
+        speak.warm(OPENERS + [SERVE_LINE,
                     "I didn't catch that. Tap and tell me about your day.",
                     "The pumps didn't answer. Please get a MixMind team member.",
                     "Something went wrong on our side. Please try again."])
