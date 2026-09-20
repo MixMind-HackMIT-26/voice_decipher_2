@@ -28,13 +28,16 @@ LC_FILE  = os.environ.get("MIXMIND_LOADCELL", "loadcell.json")
 JUICE_GML = 1.04        # grams per millilitre: juice, not water
 TOL_DG   = 30           # a weighed pour more than 3 g off target is reported
 MAX_MS = 30000          # the sketch refuses anything longer
-# The App Lab Bridge gives up on an RPC after 10 s, and the sketch blocks for
-# the whole pour -- so any single pour over 10 s kills the call and the drink,
-# even though the pump was running perfectly. 55 ml at 5 ml/s is 11 s, so this
-# is most of a normal drink, not an edge case. Pour in bites instead.
-# A peristaltic pump restarts cleanly; the seam costs a few tenths of a ml,
-# and with the load cell fitted it costs nothing at all.
-BRIDGE_MAX_MS = 8000
+# The UNO Q's Bridge gives up on any call after 10 s ("Request 'pour' timed out
+# after 10s"), though the sketch itself accepts 30 s. The sketch blocks for the
+# whole pour, so any single pour over that killed the call and the drink while
+# the pump ran perfectly -- and at the measured 5 ml/s, 55 ml is 11 s, so that
+# was most of a normal drink rather than an edge case. Long pours go out as
+# back-to-back pieces that each fit inside the Bridge.
+# A peristaltic pump restarts cleanly; the seam costs a few tenths of a ml, and
+# with the load cell fitted it costs nothing, because the weighed path keeps
+# going until the drink has arrived.
+CHUNK_MS = 9000
 # The safety net for the 18 oz cups: local_bartender aims at 130 ml and
 # shows its working; this refuses anything that would go over the side even
 # if that file is wrong. 151 ml is the measured liquid room above a cup
@@ -224,7 +227,7 @@ class HttpUnoQ:
             raise UnoQError("won't send pump %r for %d ms" % (channel, ms))
         left, out = ms, None
         while left > 0:
-            step = min(left, BRIDGE_MAX_MS)
+            step = min(left, CHUNK_MS)
             # The request lasts the whole bite: a shorter timeout would give up
             # while the pump is still running and report a failure.
             out = self._get("/pour?ch=%d&ms=%d" % (channel, step),
@@ -243,7 +246,7 @@ class HttpUnoQ:
         budget = min(MAX_MS, int(self.ms_for(channel, ml) * 1.8) + 2500)
         got, spent, idle = 0, 0, 0
         while got < dg and spent < budget:
-            step = min(BRIDGE_MAX_MS, budget - spent)   # same 10 s Bridge limit
+            step = min(CHUNK_MS, budget - spent)   # same 10 s Bridge limit
             try:
                 out = self._get("/pour_to?ch=%d&dg=%d&maxms=%d"
                                 % (channel, dg - got, step), timeout=step / 1000 + 6)

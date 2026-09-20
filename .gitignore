@@ -9,3 +9,6 @@ tts_cache/
 
 # keys, never committed
 .mixmind.env
+mixmind.env
+# speech scratch file (speak.py writes it when no cache dir exists)
+_say.wav

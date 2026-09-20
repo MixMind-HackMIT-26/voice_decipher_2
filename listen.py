@@ -140,7 +140,7 @@ def record(path=None, on_level=None):
     """
     try:
         import sounddevice as sd      # imported late: the Pi has it, laptops may not
-    except OSError:                   # PortAudio missing, and installing it needs sudo
+    except (ImportError, OSError):    # no package, or no PortAudio behind it
         return _record_arecord(path, on_level)
     try:
         with _hush():
@@ -156,8 +156,15 @@ def backend():
     """Which of the two will record() use? For the banner and preflight."""
     try:
         import sounddevice as sd
-    except OSError:
-        return "arecord %s (no PortAudio)" % (_alsa_device() or "default")
+    except (ImportError, OSError) as e:
+        # A MISSING PACKAGE raises ImportError; a package whose PortAudio
+        # library is absent raises OSError. Catching only the second meant a
+        # machine without sounddevice installed crashed here instead of
+        # falling back to the arecord path that exists precisely for it.
+        try:
+            return "arecord %s (%s)" % (_alsa_device() or "default", type(e).__name__)
+        except Exception:
+            return "arecord default"
     try:
         d = _device()
         with _hush():

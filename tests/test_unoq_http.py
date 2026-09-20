@@ -9,6 +9,7 @@ import unoq_http
 
 seen, fail_on = [], set()
 scale = {"on": False, "dg": 0, "accuracy": 1.02}
+SLEEP_DIV = [1.0]                  # >1 speeds the fake's pours up for long ones
 
 class FakeUnoQ(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -18,8 +19,10 @@ class FakeUnoQ(BaseHTTPRequestHandler):
             ch, ms = int(q["ch"][0]), int(q["ms"][0])
             if ch in fail_on or not 1 <= ch <= 7 or not 0 <= ms <= 30000:
                 body = {"ok": False, "error": "Bridge said no"}
+            elif ms > 10000:                           # the real Bridge's limit
+                body = {"ok": False, "error": "Request 'pour' timed out after 10s"}
             else:
-                time.sleep(ms / 1000)                  # like the real one: the whole pour
+                time.sleep(ms / 1000 / SLEEP_DIV[0])   # like the real one: the whole pour
                 body = {"ok": True}
         elif u.path == "/stop":
             body = {"ok": True}
@@ -64,6 +67,14 @@ b.rates = [3.7] * 6
 seen.clear(); t = time.time()
 b.pour(2, 10)                      # 2.7 s: longer than a naive short timeout
 assert seen == ["/pour?ch=2&ms=2703"] and time.time() - t >= 2.7
+
+# 2b. an 80 ml dose (~21.6 s) goes out in pieces the Bridge accepts -- as one
+#     request it failed on the machine with "timed out after 10s"
+b.rates = [3.7] * 6
+seen.clear(); SLEEP_DIV[0] = 100.0
+b.pour(1, 80)
+assert seen == ["/pour?ch=1&ms=9000", "/pour?ch=1&ms=9000", "/pour?ch=1&ms=3622"], seen
+SLEEP_DIV[0] = 1.0
 
 # 3. the UNO Q refuses a pump midway: the error surfaces AND everything goes off
 b.rates = [370.0] * 6
@@ -151,5 +162,5 @@ except unoq_http.UnoQError as e:
     assert "cannot reach the UNO Q" in str(e)
 assert time.time() - t < 6
 
-print("unoq_http: pours in order, no stirrer, long pour, refusal -> all off, unsafe recipes, unreachable -- all pass")
-
+print("unoq_http: pours in order, no stirrer, long pour, 80 ml in Bridge-sized "
+      "pieces, load cell, refusal -> all off, unsafe recipes, unreachable -- all pass")

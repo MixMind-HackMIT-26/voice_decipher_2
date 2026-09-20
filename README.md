@@ -37,7 +37,17 @@ MIXMIND_MIC=USB .venv/bin/python server.py --ui ~/mixmind-ui    # the machine
 .venv/bin/python server.py --ui ~/mixmind-ui --board mock       # no UNO Q yet
 ```
 
-Then open `http://localhost:8080` on the touchscreen. Recording ends when the
+Then open it fullscreen on the touchscreen -- works from SSH too:
+
+```
+./kiosk-browser.sh
+```
+
+It launches Chromium with the flags this Pi needs: `--ozone-platform=wayland`
+(from SSH it otherwise assumes X11 and exits) and `--password-store=basic`
+(otherwise it waits forever on a hidden keyring-password dialog and the page
+never loads). After a reboot: `./kiosk.sh` in one session, `./kiosk-browser.sh`
+in another. Recording ends when the
 guest goes quiet for 0.9 s (or at 25 s). A sound under 250 ms -- a click, a
 breath, the tap on the screen -- does not count as starting to talk: without
 that rule one tap ended the recording at 1.7 s.
@@ -60,6 +70,9 @@ GET http://10.189.87.190:8081/stop                          -> all off
 ```
 
 - A pour request lasts the whole pour, so its timeout is `ms/1000 + 5`.
+- **The UNO Q's Bridge gives up on any call after 10 s**, though the contract
+  says 30 s -- a long dose failed with "Request 'pour' timed out after 10s".
+  Long pours are sent as back-to-back pieces of at most 9 s.
 - Every recipe is checked before any pump runs: 2-6 different pumps, 10-60 ml
   each, **145 ml at most**. If the UNO Q refuses a pump midway, the Pi sends
   `/stop` straight away.

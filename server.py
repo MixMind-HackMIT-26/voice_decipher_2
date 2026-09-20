@@ -216,15 +216,17 @@ class Machine:
             self._set(state="pouring")
             speed = getattr(self.board, "speed", 1.0)
             def step(kind, i, n, p):
-                # i is 0-BASED (enumerate). The screen matches the active bar
-                # on `channel` rather than on this, because a drink can never
-                # use the same pump twice -- but anything else reading this
-                # should know which base it is getting.
+                # i is 0-based (enumerate); the wire carries i + 1, because the
+                # screen counts pours from 1 ("POUR 2 OF 3"). The kiosk also
+                # matches the active bar on `channel` rather than on this, so
+                # neither side can drift off by one through that path again.
                 if kind == "pour":
                     ms = (self.board.ms_for(p["channel"], p["ml"])
                           if hasattr(self.board, "ms_for")
                           else p["ml"] / uno_q.ML_PER_SEC * 1000 / speed)
-                    self._set(pour={"index": i, "total": n, "channel": p["channel"],
+                    # the screen counts pours from 1 ("POUR 2 OF 3"); sending 0
+                    # made the first bar light up for the first two pours
+                    self._set(pour={"index": i + 1, "total": n, "channel": p["channel"],
                                     "ml": p["ml"], "duration_ms": int(ms),
                                     "started_at_ms": int(time.time() * 1000)})
                 else:
