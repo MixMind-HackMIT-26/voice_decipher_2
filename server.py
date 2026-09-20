@@ -60,7 +60,12 @@ class Machine:
     def _set(self, reset=False, **kw):
         with self.lock:
             if reset:
-                self.s = {"ingredients": INGREDIENTS, "cup": CUP, "speech": None}
+                # RANGES goes out with the state so the screen never hardcodes
+                # its own copy: the dials and the drink are then normalised
+                # against the same numbers, and recalibrating the mic cannot
+                # leave the two quietly disagreeing.
+                self.s = {"ingredients": INGREDIENTS, "cup": CUP, "speech": None,
+                          "ranges": local_bartender.RANGES}
             self.s.update(kw)
 
     def snapshot(self):
@@ -172,7 +177,9 @@ class Machine:
                 voice.join(timeout=6.0)
             log["voice"] = speak.LAST
 
-            self._set(state="serving", pour=None)
+            # speech follows what is actually being spoken, so the screen
+            # never quotes the previous sentence back at the guest.
+            self._set(state="serving", pour=None, speech=SERVE_LINE)
             self._say(SERVE_LINE, recipe["axes"])
             time.sleep(self.serve_s)
             self._set(state="idle", level_db=-60.0, elapsed_s=0.0, features=None,
