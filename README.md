@@ -112,8 +112,8 @@ come round.
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; with neither, a timeout, or a reply
   that does not look like a spoken line, you get the template line back.
   `MIXMIND_LLM=off` forces the template.
-- **`speak.py`** says it out loud: **Deepgram Aura**, then OpenAI TTS, then
-  `espeak-ng` offline (`say` on a Mac). Pin the speaker by name the way the
+- **`speak.py`** says it out loud: **ElevenLabs**, then **Deepgram Aura**,
+  then OpenAI TTS, then `espeak-ng` offline (`say` on a Mac). Pin the speaker by name the way the
   mic is pinned -- `MIXMIND_SPK=UACDemo` -- because card numbers move after a
   reboot. Cloud audio is cached in `tts_cache/` under a key that includes the
   voice, and the fixed lines are fetched at startup, not while a guest is
@@ -333,6 +333,42 @@ Neither is load-bearing. `tests/test_voice.py` checks that an absent key is
 skipped, a bad key falls through in both directions without an exception, and
 the machine still pours the same drinks with no network at all.
 
+## ElevenLabs: the voice answers in kind
+
+ElevenLabs is first in the chain, and not because it is another voice. It is
+the only backend that takes **direction**, and MixMind has something to
+direct it with: the same three axes that pour the drink also set the
+delivery.
+
+```
+guest's voice -> features.py -> axes -> local_bartender  -> the drink
+                                    \-> speak._shape()   -> voice_settings
+```
+
+`stability` is inverted expression -- low is dynamic and varied, high is even
+and calm -- so:
+
+| guest      | stability | style | what it sounds like        |
+|------------|-----------|-------|----------------------------|
+| wired      | 0.34      | 0.61  | brisk, varied, keeps up    |
+| flat, slow | 0.73      | 0.16  | even, unhurried, steadier  |
+
+The same sentence, read two ways, because the machine measured two different
+people. Hear it yourself:
+
+```
+export ELEVENLABS_API_KEY=...
+python speak.py "This one is mostly citrus and soda. Go easy."
+```
+
+That prints both settings and plays the line twice, once as each guest.
+
+`MIXMIND_EL_VOICE` takes a voice **id** from the ElevenLabs voice library (the
+id, not the name); `MIXMIND_EL_MODEL` defaults to `eleven_flash_v2_5` for
+latency and falls back to `eleven_multilingual_v2` if the account refuses it.
+PCM comes back headerless and is wrapped into a wav here; if the account's
+tier refuses PCM output it falls back to mp3, which needs `mpg123` on the Pi.
+
 ## What it measures
 
 | feature | what it hears | how |
@@ -411,6 +447,8 @@ hardware silently pins an axis at 0 or 1 and throws that feature away:
   from the same eight phrases.
 - Deepgram STT uploads the whole recording, so it is only as quick as the
   uplink. On a slow hotspot, `MIXMIND_STT=whisper`.
+- ElevenLabs mp3 fallback needs `mpg123`; without it that path raises and the
+  chain drops to Deepgram. `sudo apt install mpg123` if the tier gives mp3.
 - `noisy-1/-2` are from an older, shorter recording session.
 - Timing is from a laptop; check it against the 400 ms budget on the Pi.
 - `0` jitter/shimmer means too few clean voice cycles, not a perfect voice.

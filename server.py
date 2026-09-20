@@ -84,12 +84,13 @@ class Machine:
                   recipe=None, pour=None, error=None, reset=True)
         return True
 
-    def _say(self, text):
-        """Start talking. Returns a thread to join, or None when muted."""
+    def _say(self, text, shape=None):
+        """Start talking. `shape` is the guest's axes -- ElevenLabs uses it to
+        match the delivery to how they sounded. Returns a thread, or None."""
         if not (self.voice and text):
             return None
         try:
-            return speak.say(text)
+            return speak.say(text, shape)
         except Exception:                      # a mute machine still serves
             return None
 
@@ -143,7 +144,7 @@ class Machine:
             # UNDER it. The old code read the line for 8 s in silence and only
             # then poured -- 8 s per guest, times sixty guests, for nothing.
             self._set(state="reveal", recipe=recipe, speech=spoken[0])
-            voice = self._say(spoken[0])
+            voice = self._say(spoken[0], recipe["axes"])
             time.sleep(self.reveal_lead)
 
             self._set(state="pouring")
@@ -171,7 +172,7 @@ class Machine:
             log["voice"] = speak.LAST
 
             self._set(state="serving", pour=None)
-            self._say(SERVE_LINE)
+            self._say(SERVE_LINE, recipe["axes"])
             time.sleep(self.serve_s)
             self._set(state="idle", level_db=-60.0, elapsed_s=0.0, features=None,
                       recipe=None, pour=None, error=None, reset=True)

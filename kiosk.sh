@@ -9,14 +9,15 @@ cd "$(dirname "$0")"
 # Secrets live OUTSIDE the repo, in one file that git never sees. Both are
 # optional: with neither, the machine still pours -- it just talks through
 # espeak and uses the template lines.
-#   DEEPGRAM_API_KEY=...     Aura (voice) + nova-3 (words)
+#   ELEVENLABS_API_KEY=...   the voice, directed by how the guest sounded
+#   DEEPGRAM_API_KEY=...     nova-3 (words), and Aura if ElevenLabs is absent
 #   ANTHROPIC_API_KEY=...    or OPENAI_API_KEY -- writes each guest's line
 # This is also why the kiosk works when systemd starts it at boot with none
 # of your shell's environment.
 for f in "$HOME/.mixmind.env" "./.env"; do
   [ -f "$f" ] && . "$f"
 done
-export DEEPGRAM_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY
+export ELEVENLABS_API_KEY DEEPGRAM_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY
 export MIXMIND_MIC="${MIXMIND_MIC:-UACDemo}"
 export MIXMIND_SPK="${MIXMIND_SPK:-UACDemo}"   # the speaker, same reason
 # MIXMIND_UNOQ, DEEPGRAM_API_KEY, ANTHROPIC_API_KEY / OPENAI_API_KEY if set in the

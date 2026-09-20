@@ -196,6 +196,10 @@ def recipe(f, words=None):
         "pours": pours,
         "ml_total": sum(p["ml"] for p in pours),
         "mood": mood,
+        # how they sounded, 0..1 -- the drink is poured from these, and the
+        # voice that describes it is shaped by them (speak.py)
+        "axes": {"energy": round(energy, 3), "halting": round(halting, 3),
+                 "animated": round(animated, 3)},
         "confidence": round(0.45 + 0.25 * max(abs(energy - .5), abs(halting - .5)) * 2, 2),
     }
 

@@ -1,12 +1,19 @@
 """Say it out loud. Stream C: the bartender's mouth.
 
-Three backends, tried in that order:
+Four backends, tried in that order:
 
-  1. Deepgram Aura   DEEPGRAM_API_KEY. Low latency, and it will hand back
+  1. ElevenLabs      ELEVENLABS_API_KEY. The only one that takes DIRECTION:
+                     the guest's own voice measurements shape the delivery,
+                     so a wired guest is answered briskly and a flat one
+                     gets something slower and steadier. See _shape().
+  2. Deepgram Aura   DEEPGRAM_API_KEY. Lower latency, and it hands back
                      linear16 in a wav container -- exactly what aplay wants,
                      with nothing to decode on the Pi.
-  2. OpenAI TTS      OPENAI_API_KEY, if that is the key you have.
-  3. espeak-ng       robotic, offline, always there. On a Mac, `say` instead.
+  3. OpenAI TTS      OPENAI_API_KEY, if that is the key you have.
+  4. espeak-ng       robotic, offline, always there. On a Mac, `say` instead.
+
+Every backend takes the same two arguments, and all but ElevenLabs ignore
+the second one.
 
 Nothing here raises. If every backend fails the machine simply stays quiet,
 because a guest with a drink and no voice is a working machine and a guest
@@ -23,6 +30,14 @@ after a reboot, so pin it by name.
 import hashlib, json, os, platform, shutil, subprocess, threading, urllib.error, urllib.request
 
 SPK        = os.environ.get("MIXMIND_SPK", "").strip()
+# ElevenLabs. The voice id comes from their voice library -- paste the id,
+# not the name. flash is the low-latency model; multilingual_v2 is the
+# documented default and is retried automatically if flash is refused.
+EL_KEY_ENV = "ELEVENLABS_API_KEY"
+EL_VOICE   = os.environ.get("MIXMIND_EL_VOICE", "JBFqnCBsd6RMkjVDRZzb")
+EL_MODEL   = os.environ.get("MIXMIND_EL_MODEL", "eleven_flash_v2_5")
+EL_URL     = "https://api.elevenlabs.io/v1/text-to-speech"
+EL_RATE    = 24000
 # Aura-2, masculine, "natural, smooth, clear, comfortable" -- a bartender
 # rather than a receptionist. aura-2-cordelia-en if you want warmer.
 DG_VOICE   = os.environ.get("MIXMIND_DG_VOICE", "aura-2-arcas-en")
@@ -66,6 +81,15 @@ def list_devices():
 def _play(path):
     if MAC:
         cmd = ["afplay", path]
+    elif path.endswith(".mp3"):
+        player = shutil.which("mpg123") or shutil.which("ffplay")
+        if not player:
+            raise OSError("got mp3 audio but neither mpg123 nor ffplay is "
+                          "installed: sudo apt install mpg123")
+        dev = _device()
+        cmd = ([player, "-q"] + (["-a", dev] if dev else []) + [path]
+               if player.endswith("mpg123") else
+               [player, "-nodisp", "-autoexit", "-loglevel", "quiet", path])
     else:
         dev = _device()
         cmd = ["aplay", "-q"] + (["-D", dev] if dev else []) + [path]
@@ -74,7 +98,68 @@ def _play(path):
 
 
 # ---------------------------------------------------------------- the voices
-def _deepgram_wav(text):
+def _wav_header(pcm, rate):
+    """Raw PCM -> a wav aplay will take. ElevenLabs sends headerless PCM."""
+    import struct
+    n = len(pcm)
+    return (b"RIFF" + struct.pack("<I", 36 + n) + b"WAVEfmt " +
+            struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16) +
+            b"data" + struct.pack("<I", n) + pcm)
+
+
+def _shape(shape):
+    """The guest's voice, turned into ElevenLabs voice_settings.
+
+    This is the point of using them at all. stability is inverted expression:
+    low is dynamic and varied, high is even and calm. So an energetic,
+    animated guest gets a livelier read, and someone flat and halting gets
+    something steadier -- the machine answers in kind instead of reading
+    every guest in the same cheerful monotone.
+    """
+    s = shape or {}
+    e = min(1.0, max(0.0, float(s.get("energy", 0.5))))
+    a = min(1.0, max(0.0, float(s.get("animated", 0.5))))
+    h = min(1.0, max(0.0, float(s.get("halting", 0.5))))
+    return {
+        "stability":        round(min(0.85, max(0.25, 0.72 - 0.32 * e - 0.12 * a + 0.10 * h)), 3),
+        "style":            round(min(0.70, max(0.05, 0.08 + 0.38 * e + 0.22 * a)), 3),
+        "similarity_boost": 0.75,
+        "use_speaker_boost": True,
+    }
+
+
+def _elevenlabs_audio(text, shape=None):
+    """(bytes, extension) or None. PCM is wrapped into a wav here; if the
+    account's tier refuses PCM we fall back to mp3, which needs mpg123."""
+    key = os.environ.get(EL_KEY_ENV, "").strip()
+    if not key:
+        return None
+
+    def ask(model, fmt):
+        body = json.dumps({"text": text, "model_id": model,
+                           "voice_settings": _shape(shape)}).encode()
+        req = urllib.request.Request(
+            "%s/%s?output_format=%s" % (EL_URL, EL_VOICE, fmt), data=body,
+            headers={"xi-api-key": key, "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+            return r.read()
+
+    for model in (EL_MODEL, "eleven_multilingual_v2"):
+        try:
+            return _wav_header(ask(model, "pcm_%d" % EL_RATE), EL_RATE), ".wav"
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                raise                              # bad key: stop, do not loop
+            # 422 here is usually the tier: PCM output is a paid format.
+            try:
+                return ask(model, "mp3_44100_128"), ".mp3"
+            except urllib.error.HTTPError as e2:
+                if e2.code in (401, 403) or model != EL_MODEL:
+                    raise
+    return None
+
+
+def _deepgram_wav(text, shape=None):
     """Aura, as 16-bit wav bytes. None if there is no key or no net.
 
     encoding=linear16 + container=wav is the whole reason this is first: the
@@ -93,7 +178,7 @@ def _deepgram_wav(text):
         return r.read()
 
 
-def _openai_wav(text):
+def _openai_wav(text, shape=None):
     """A real voice, as 16-bit wav bytes. None if there is no key or no net."""
     key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not key:
@@ -111,18 +196,23 @@ def _openai_wav(text):
 
 # (name, function, identity-for-the-cache-key). Order is the fallback order.
 def _backends():
-    return [("deepgram", _deepgram_wav, DG_VOICE),
-            ("openai",   _openai_wav,   "%s/%s" % (TTS_MODEL, VOICE))]
+    return [("elevenlabs", _elevenlabs_audio, "el/%s/%s" % (EL_VOICE, EL_MODEL)),
+            ("deepgram",   _deepgram_wav,     DG_VOICE),
+            ("openai",     _openai_wav,       "%s/%s" % (TTS_MODEL, VOICE))]
 
 
-def _cached(text, ident):
+def _cached(text, ident, shape=None):
     """Cloud audio costs a round trip; the fixed lines should pay it once.
 
     The voice is in the key, so switching backends never plays back the old
     one out of the cache.
     """
-    key = hashlib.sha1(("%s|%s" % (ident, text)).encode()).hexdigest()
-    return os.path.join(CACHE, key + ".wav")
+    mark = ""
+    if shape and ident.startswith("el/"):         # only ElevenLabs is directed
+        v = _shape(shape)
+        mark = "|%s/%s" % (v["stability"], v["style"])
+    key = hashlib.sha1(("%s|%s%s" % (ident, text, mark)).encode()).hexdigest()
+    return os.path.join(CACHE, key)               # the extension is added later
 
 
 def _robot(text, path):
@@ -137,26 +227,30 @@ def _robot(text, path):
 
 
 # ---------------------------------------------------------------- the mouth
-def speak(text):
-    """Say it. Returns 'openai' / 'espeak' / '' -- never raises."""
+def speak(text, shape=None):
+    """Say it. `shape` is the guest's axes (energy/halting/animated), which
+    only ElevenLabs can act on. Returns the backend used, or '' -- never
+    raises."""
     global LAST
     text = (text or "").strip()
     if not text:
         return ""
     for name, fn, ident in _backends():
         try:
-            path = _cached(text, ident)
-            if os.path.exists(path) and os.path.getsize(path) > 44:
-                _play(path); LAST = name + "(cached)"; return LAST
-            wav = fn(text)
-            if not wav:
+            stem = _cached(text, ident, shape)
+            for ext in (".wav", ".mp3"):
+                if os.path.exists(stem + ext) and os.path.getsize(stem + ext) > 44:
+                    _play(stem + ext); LAST = name + "(cached)"; return LAST
+            got = fn(text, shape)
+            if not got:
                 continue                     # no key for this one: try the next
+            audio, ext = got if isinstance(got, tuple) else (got, ".wav")
             os.makedirs(CACHE, exist_ok=True)
-            tmp = path + ".part"
+            tmp = stem + ext + ".part"
             with open(tmp, "wb") as f:
-                f.write(wav)
-            os.replace(tmp, path)
-            _play(path); LAST = name; return LAST
+                f.write(audio)
+            os.replace(tmp, stem + ext)
+            _play(stem + ext); LAST = name; return LAST
         except (urllib.error.URLError, OSError, ValueError,
                 subprocess.SubprocessError) as e:
             print("  [speak] %s unavailable (%s) -- falling back" % (name, e))
@@ -172,9 +266,9 @@ def speak(text):
         return ""
 
 
-def say(text):
+def say(text, shape=None):
     """speak() on a thread, so the pumps can run while it talks."""
-    t = threading.Thread(target=speak, args=(text,), daemon=True)
+    t = threading.Thread(target=speak, args=(text, shape), daemon=True)
     t.start()
     return t
 
@@ -185,13 +279,15 @@ def warm(lines):
     for line in lines:
         for name, fn, ident in _backends():
             try:
-                if os.path.exists(_cached(line, ident)):
+                stem = _cached(line, ident)
+                if any(os.path.exists(stem + e) for e in (".wav", ".mp3")):
                     got += 1; break
-                wav = fn(line)
-                if wav:
+                res = fn(line)
+                if res:
+                    audio, ext = res if isinstance(res, tuple) else (res, ".wav")
                     os.makedirs(CACHE, exist_ok=True)
-                    with open(_cached(line, ident), "wb") as f:
-                        f.write(wav)
+                    with open(stem + ext, "wb") as f:
+                        f.write(audio)
                     got += 1
                     break
             except Exception:
@@ -201,13 +297,15 @@ def warm(lines):
 
 def available():
     out = _device() or "default out"
+    if os.environ.get(EL_KEY_ENV, "").strip():
+        return "elevenlabs/%s directed (%s)" % (EL_MODEL, out)
     if os.environ.get("DEEPGRAM_API_KEY", "").strip():
         return "deepgram/%s (%s)" % (DG_VOICE, out)
     if os.environ.get("OPENAI_API_KEY", "").strip():
         return "openai/%s (%s)" % (VOICE, out)
     if MAC or shutil.which("espeak-ng"):
         return "espeak (%s)" % out
-    return "OFF -- no DEEPGRAM_API_KEY, no OPENAI_API_KEY and no espeak-ng"
+    return "OFF -- no ELEVENLABS_API_KEY, no DEEPGRAM_API_KEY, no OPENAI_API_KEY and no espeak-ng"
 
 
 if __name__ == "__main__":
@@ -217,4 +315,7 @@ if __name__ == "__main__":
     else:
         print("backend: %s" % available())
         line = " ".join(sys.argv[1:]) or "Right. This one is mostly citrus and soda. Go easy."
-        print("spoke via %r" % speak(line))
+        # the same sentence, delivered to two different guests
+        for who, shape in (("wired  ", {"energy": .9, "animated": .85, "halting": .05}),
+                           ("flat   ", {"energy": .15, "animated": .1, "halting": .7})):
+            print("%s %s -> %r" % (who, _shape(shape), speak(line, shape)))

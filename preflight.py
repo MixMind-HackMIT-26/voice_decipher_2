@@ -116,6 +116,19 @@ def _tts_live():
 check("  ...out the speaker", _tts_live,
       "MIXMIND_SPK=<name or index>; run `python speak.py --list` to see them")
 
+def _el_shape():
+    import speak
+    if not os.environ.get(speak.EL_KEY_ENV, "").strip():
+        return True, "skipped (no ELEVENLABS_API_KEY)"
+    w = speak._shape({"energy": .9, "animated": .85, "halting": .05})
+    f = speak._shape({"energy": .15, "animated": .1, "halting": .7})
+    if abs(w["stability"] - f["stability"]) < 0.2:
+        return False, "wired and flat guests get the same delivery"
+    return True, "wired stability %.2f / style %.2f  vs  flat %.2f / %.2f" % (
+        w["stability"], w["style"], f["stability"], f["style"])
+check("  ...inflection", _el_shape, "the axes are not reaching speak.py")
+
+
 def _espeak():
     import shutil, speak
     if speak.MAC or shutil.which("espeak-ng"):

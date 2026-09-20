@@ -85,6 +85,35 @@ assert w.getnframes() == len(x)
 # 9. switching voices must not replay the old one out of the cache
 assert speak._cached("hi", "aura-2-arcas-en") != speak._cached("hi", "gpt-4o-mini-tts/ballad")
 
+# 9b. ElevenLabs: the guest's voice really does change the delivery, and two
+#     different deliveries of one sentence are two different cache entries
+wired = {"energy": .9, "animated": .85, "halting": .05}
+flat  = {"energy": .15, "animated": .1, "halting": .7}
+sw, sf = speak._shape(wired), speak._shape(flat)
+assert sw["stability"] < sf["stability"] - 0.2, (sw, sf)   # wired = more dynamic
+assert sw["style"] > sf["style"] + 0.2, (sw, sf)
+for v in list(sw.values()) + list(sf.values()):
+    if isinstance(v, float):
+        assert 0.0 <= v <= 1.0, v                          # the API rejects anything else
+assert speak._shape(None) and speak._shape({"energy": 99})  # junk in, valid out
+el = "el/x/eleven_flash_v2_5"
+assert speak._cached("hi", el, wired) != speak._cached("hi", el, flat)
+assert speak._cached("hi", "aura-2-arcas-en", wired) == speak._cached("hi", "aura-2-arcas-en", flat)
+
+# 9c. no key -> skipped, bad key -> falls through, same as the others
+os.environ.pop(speak.EL_KEY_ENV, None)
+assert speak._elevenlabs_audio("hello") is None
+os.environ[speak.EL_KEY_ENV] = "not-a-real-elevenlabs-key"
+assert "elevenlabs" in speak.available()
+assert speak.speak("MixMind elevenlabs fallback test", wired) in ("", "espeak"), speak.LAST
+del os.environ[speak.EL_KEY_ENV]
+
+# 9d. the PCM wrapper produces a wav aplay will actually accept
+import wave as _w, io as _io
+h = _w.open(_io.BytesIO(speak._wav_header(b"\x00\x01" * 480, 24000)))
+assert (h.getnchannels(), h.getsampwidth(), h.getframerate()) == (1, 2, 24000)
+assert h.getnframes() == 480
+
 # 10. MIXMIND_STT pins the backend
 transcribe.WANT = "whisper"
 assert transcribe._order() == ["whisper"]

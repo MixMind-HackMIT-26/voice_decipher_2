@@ -61,7 +61,7 @@ def one_drink(board, wav=None, voice=True):
 
     # Talk and pour at the same time: the guest hears why while it happens.
     t2 = time.time()
-    v = speak.say(spoken) if voice else None
+    v = speak.say(spoken, recipe["axes"]) if voice else None
     board.make(recipe, on_step=show)
     if v:
         v.join(timeout=6.0)
