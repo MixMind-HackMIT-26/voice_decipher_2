@@ -216,6 +216,10 @@ class Machine:
             self._set(state="pouring")
             speed = getattr(self.board, "speed", 1.0)
             def step(kind, i, n, p):
+                # i is 0-BASED (enumerate). The screen matches the active bar
+                # on `channel` rather than on this, because a drink can never
+                # use the same pump twice -- but anything else reading this
+                # should know which base it is getting.
                 if kind == "pour":
                     ms = (self.board.ms_for(p["channel"], p["ml"])
                           if hasattr(self.board, "ms_for")
