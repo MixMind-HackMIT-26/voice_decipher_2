@@ -6,3 +6,6 @@ logs/
 
 # cloud TTS audio, re-fetched on demand
 tts_cache/
+
+# speech scratch file (speak.py writes it when no cache dir exists)
+_say.wav
