@@ -32,6 +32,7 @@ Download the Whisper model ONCE while there is internet (it is cached after):
     python transcribe.py
 """
 import io, json, os, urllib.error, urllib.request, wave
+import env  # noqa: F401  -- loads ~/.mixmind.env
 import numpy as np
 
 MODEL       = os.environ.get("MIXMIND_STT_MODEL", "tiny.en")     # whisper's

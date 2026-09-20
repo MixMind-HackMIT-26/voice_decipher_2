@@ -16,6 +16,7 @@ Once this is done, unoq_http pours to weight instead of to time, and a cup
 cannot overfill just because a pump drifted.
 """
 import json, os, sys, time
+import env  # noqa: F401  -- loads ~/.mixmind.env
 import unoq_http
 
 LC_FILE = unoq_http.LC_FILE

@@ -28,6 +28,7 @@ after a reboot, so pin it by name.
     MIXMIND_SPK=UACDemo    or an index, or blank for the system default
 """
 import hashlib, json, os, platform, shutil, subprocess, threading, urllib.error, urllib.request
+import env  # noqa: F401  -- loads ~/.mixmind.env
 
 SPK        = os.environ.get("MIXMIND_SPK", "").strip()
 # ElevenLabs. The voice id comes from their voice library -- paste the id,

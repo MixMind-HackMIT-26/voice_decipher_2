@@ -6,3 +6,6 @@ logs/
 
 # cloud TTS audio, re-fetched on demand
 tts_cache/
+
+# keys, never committed
+.mixmind.env

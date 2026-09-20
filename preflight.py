@@ -10,6 +10,7 @@ machine works but worse -- a robot voice, a repeated line, guessed doses.
 Exit code is the number of FAILs, so `python preflight.py && echo READY` works.
 """
 import os, subprocess, sys, time
+import env  # noqa: F401  -- loads ~/.mixmind.env
 
 QUIET = "--quiet" in sys.argv
 ROWS, FAILS, WARNS = [], 0, 0
@@ -35,7 +36,8 @@ def check(name, fn, fix="", warn_only=False):
     return ok
 
 
-print("MixMind preflight  %s\n%s" % (time.strftime("%F %T"), "-" * 64))
+print("MixMind preflight  %s" % time.strftime("%F %T"))
+print("env file: %s\n%s" % (env.describe(), "-" * 64))
 
 # ---------------------------------------------------------------- the brain
 def _numpy():

@@ -13,6 +13,7 @@ The UI polls GET /api/state and sends POST /api/start (tap to speak) and
 /api/reset (Try again). Recording ends when the guest goes quiet.
 """
 import argparse, functools, json, os, threading, time, traceback
+import env  # noqa: F401  -- loads ~/.mixmind.env
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 

@@ -13,6 +13,7 @@ strange one, and you get recipe["rationale"] back unchanged. Standard
 library only. Set MIXMIND_LLM=off to force the template.
 """
 import json, os, re, urllib.error, urllib.request
+import env  # noqa: F401  -- loads ~/.mixmind.env
 
 TIMEOUT_S = float(os.environ.get("MIXMIND_LLM_TIMEOUT", "2.5"))
 MODEL_A   = os.environ.get("MIXMIND_LLM_MODEL", "claude-sonnet-4-5")

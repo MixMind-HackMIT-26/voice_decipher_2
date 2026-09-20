@@ -14,6 +14,7 @@ Cups are 18 oz, packed with ice: see local_bartender for why a pour is
 capped at 130 ml and what happens to that number if you change cups.
 """
 import argparse, json, os, sys, time
+import env  # noqa: F401  -- loads ~/.mixmind.env
 from concurrent.futures import ThreadPoolExecutor
 
 import content, features, listen, local_bartender, narrate, speak, transcribe, vad

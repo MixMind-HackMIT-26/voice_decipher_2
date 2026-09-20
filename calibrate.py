@@ -14,6 +14,7 @@ so if you calibrate with juice type the grams and this corrects for it --
 but calibrate with water and flush after, it is faster and cleaner.
 """
 import json, os, sys, time
+import env  # noqa: F401  -- loads ~/.mixmind.env
 import unoq_http
 
 SECONDS   = float(os.environ.get("MIXMIND_CAL_SECONDS", "10"))
