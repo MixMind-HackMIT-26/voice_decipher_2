@@ -2,6 +2,7 @@
 import json
 import os
 import time
+import traceback
 from pathlib import Path
 import features
 import listen
@@ -97,7 +98,12 @@ class MixedMode:
             else:
                 self.waiting(message)
         except Exception as exc:
-            print("Mixed conversation failed: %s" % type(exc).__name__)
+            # Print the actual rejection (e.g. "Sample the current proposal
+            # before revising", "Maximum final serving is 130 ml") plus a
+            # traceback. The guest still gets the generic line below; the
+            # operator gets the specific cause on stdout/journalctl.
+            print("Mixed conversation failed: %r" % (exc,))
+            traceback.print_exc()
             if initial and self.baseline is None:
                 self.publish("error", "I didn't catch that. Please try again.", [])
                 self.machine._set(error="I didn't catch that. Please try again.")

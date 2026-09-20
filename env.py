@@ -17,7 +17,7 @@ Import it first, before anything that reads os.environ at import time:
 """
 import os
 
-PATHS = ("~/.mixmind.env", ".env", "~/.config/mixmind/env")
+PATHS = ("~/.mixmind.env", "~/mixmind.env", ".env", "~/.config/mixmind/env")
 LOADED = []
 
 
