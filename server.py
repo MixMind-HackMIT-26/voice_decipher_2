@@ -166,15 +166,21 @@ class Machine:
             with ThreadPoolExecutor(2) as ex:      # how it sounded / what was said
                 fv = ex.submit(features.extract, wav)
                 ft = ex.submit(transcribe.transcribe, x, sr)
-                feats, text = fv.result(), ft.result()
-            if feats["duration_s"] < 0.5:
-                raise GuestError("I didn't catch that. Tap and tell me about your day.")
+                feats = fv.result()
+                if feats["duration_s"] < 0.5:
+                    raise GuestError("I didn't catch that. Tap and tell me about your day.")
+                # Put the measurements on screen the moment they exist rather
+                # than waiting for the words too. Reading the voice takes a
+                # second or two; sending the recording up for transcription
+                # takes ten on a hotspot, and the dials have nothing to do
+                # with the transcript.
+                self._set(features=feats)
+                text = ft.result()
             words = content.analyze(text, feats["duration_s"])
             recipe = local_bartender.recipe(feats, words)
             log.update(features=feats, words=words, recipe=recipe,
                        stt=transcribe.BACKEND,
                        think_s=round(time.time() - t1, 2))
-            self._set(features=feats)
 
             # The narrator writes this guest's line while the dials animate, so
             # it costs nothing: it has until think_min is up, and if it is slow
