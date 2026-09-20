@@ -3,10 +3,10 @@ import math
 
 CATALOG = {
     1: {"name": "Orange juice", "profile": "sweet citrus base", "max_ml": 60},
-    2: {"name": "Cranberry", "profile": "tart red fruit; bottle-dependent sweetness", "max_ml": 60},
-    3: {"name": "Lime cordial", "profile": "concentrated sweet-sour lime accent", "max_ml": 20},
-    4: {"name": "Ginger ale", "profile": "sweet sparkling ginger mixer", "max_ml": 60},
-    5: {"name": "Grape juice", "profile": "sweet dark fruit", "max_ml": 60},
+    2: {"name": "Sweet tea", "profile": "dark sweet black tea, lightly tannic", "max_ml": 60},
+    3: {"name": "Pineapple mango", "profile": "concentrated tropical accent, very sweet", "max_ml": 20},
+    4: {"name": "Cranberry", "profile": "tart red fruit; bottle-dependent sweetness", "max_ml": 60},
+    5: {"name": "Limeade", "profile": "sweet-sour lime, bright and thirst-quenching", "max_ml": 60},
     6: {"name": "Apple juice", "profile": "sweet mellow fruit", "max_ml": 60},
 }
 INGREDIENTS = {str(ch): item["name"] for ch, item in CATALOG.items()}
