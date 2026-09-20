@@ -17,9 +17,11 @@ loose connector costs accuracy and not the evening.
 Pumps 1-6 are on the UNO Q's D2-D7. Channel 7 was the stirrer, which was
 cut, so this never stirs. Standard library only.
 """
-import json, os, urllib.error, urllib.request
+import json, os, socket, urllib.error, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
-URL = os.environ.get("MIXMIND_UNOQ", "http://10.189.87.190:8081")   # changes on DHCP renewal
+URL = os.environ.get("MIXMIND_UNOQ", "auto")   # "auto" = go and find it
+PORT = 8081
 ML_PER_SEC = 3.7        # the handover's guess -- calibration.json overrides, per pump
 CAL_FILE = os.environ.get("MIXMIND_CAL", "calibration.json")
 LC_FILE  = os.environ.get("MIXMIND_LOADCELL", "loadcell.json")
@@ -34,6 +36,93 @@ MIN_ML, MAX_ML, MAX_TOTAL_ML = 10, 60, 145
 
 
 class UnoQError(RuntimeError): pass
+
+
+# ---------------------------------------------------------------- finding it
+# The board's address changes every time the network does -- a new hotspot, a
+# DHCP renewal, a reboot -- and hunting for it by hand at a bench is how an
+# evening disappears. /stop is safe to call on anything (it only turns pumps
+# off, and nothing else on the network answers it), so we can just knock.
+def _my_ips():
+    ips = []
+    for probe in ("8.8.8.8", "192.168.1.1"):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((probe, 80))
+            ip = s.getsockname()[0]
+            if ip not in ips and not ip.startswith("127."):
+                ips.append(ip)
+        except OSError:
+            pass
+        finally:
+            s.close()
+    if not ips:
+        # No route to the outside (a hotspot with no data, a closed venue
+        # network): ask the interfaces directly instead.
+        try:
+            import subprocess
+            out = subprocess.run(["hostname", "-I"], capture_output=True,
+                                 text=True, timeout=5).stdout
+            ips = [w for w in out.split()
+                   if w.count(".") == 3 and not w.startswith(("127.", "172.17.",
+                                                              "172.18."))]
+        except Exception:
+            pass
+    if not ips:
+        try:
+            ips = [a for a in socket.gethostbyname_ex(socket.gethostname())[2]
+                   if not a.startswith("127.")]
+        except OSError:
+            pass
+    return ips
+
+
+def _candidates():
+    """Every address worth knocking on, nearest first."""
+    out = ["http://uno-q.local:%d" % PORT]
+    for ip in _my_ips():
+        a, b, c, d = ip.split(".")
+        # An iPhone hotspot hands out 172.20.10.2-.14 and nothing else, so
+        # that whole network is 13 addresses -- it is found in a second.
+        last = 15 if ip.startswith("172.20.10.") else 255
+        for host in range(1, last):
+            if str(host) != d:
+                out.append("http://%s.%s.%s.%d:%d" % (a, b, c, host, PORT))
+    return out
+
+
+def _knock(url, timeout):
+    try:
+        with urllib.request.urlopen(url + "/stop", timeout=timeout) as r:
+            return url if json.loads(r.read()).get("ok") else None
+    except Exception:
+        return None
+
+
+def discover(timeout=1.5, verbose=False):
+    """The board's URL, or None. Knocks on the whole local network at once."""
+    cands = _candidates()
+    if verbose:
+        print("looking for the UNO Q on %d addresses ..." % len(cands))
+    with ThreadPoolExecutor(64) as ex:
+        for found in ex.map(lambda u: _knock(u, timeout), cands):
+            if found:
+                return found
+    return None
+
+
+def resolve(url=None, verbose=False):
+    """Turn MIXMIND_UNOQ (or 'auto') into a real address."""
+    url = url or URL
+    if url and url != "auto":
+        return url.rstrip("/")
+    found = discover(verbose=verbose)
+    if not found:
+        raise UnoQError(
+            "could not find the UNO Q on this network. Is it on the same "
+            "wifi, and is mixmind.service running on it? Set MIXMIND_UNOQ="
+            "http://<ip>:%d to skip the search." % PORT)
+    return found
 
 
 def validate(recipe):
@@ -54,8 +143,8 @@ def validate(recipe):
 class HttpUnoQ:
     speed = 1.0
 
-    def __init__(self, url=URL, weigh=True):
-        self.url = url.rstrip("/")
+    def __init__(self, url=None, weigh=True):
+        self.url = resolve(url)
         self.version = "UNO Q at %s" % self.url
         self.weighing = False
         self.rates = [ML_PER_SEC] * 6
@@ -188,3 +277,19 @@ class HttpUnoQ:
     def close(self):
         try: self.all_off()
         except UnoQError: pass
+
+
+if __name__ == "__main__":
+    import sys
+    found = discover(verbose=True)
+    if not found:
+        print("not found. Check both boxes are on the same wifi, then on the "
+              "UNO Q: hostname -I")
+        sys.exit(1)
+    print("UNO Q at %s" % found)
+    print("\n  export MIXMIND_UNOQ=%s\n" % found)
+    b = HttpUnoQ(found)
+    print("  %s" % b.version)
+    print("  pumps: %s ml/s" % ", ".join("%.1f" % r for r in b.rates))
+    if b.weighing:
+        print("  scale: %.1f g on it right now" % (b.weigh() / 10.0))

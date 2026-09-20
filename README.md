@@ -70,8 +70,17 @@ GET http://10.189.87.190:8081/stop                          -> all off
 - Pump names on the screen are `server.py`'s `INGREDIENTS`, and the **bottle
   order matters**: `local_bartender._weights` is written around
   1 citrus · 2 tart red · 3 sour accent · 4 sparkling · 5 dark · 6 warm.
-- The UNO Q's address changes on DHCP renewal:
-  `MIXMIND_UNOQ=http://<new-ip>:8081 ./kiosk.sh`.
+- **The UNO Q finds itself.** Its address changes every time the network does
+  -- a new hotspot, a DHCP renewal, a reboot -- so `MIXMIND_UNOQ` defaults to
+  `auto` and the Pi knocks on every address on the local network at once.
+  `/stop` is safe to call on anything, so this is just a fast parallel probe.
+  An iPhone hotspot is only 13 addresses and is searched in about a second.
+
+  ```
+  python unoq_http.py        where is it, and is the scale working?
+  ```
+
+  Pin it with `MIXMIND_UNOQ=http://<ip>:8081` to skip the search.
 
 `./kiosk.sh` uses the real pumps; `BOARD=mock ./kiosk.sh` prints instead.
 `uno_q.py` (the UART link) is the older plan, kept as a fallback -- it is the
