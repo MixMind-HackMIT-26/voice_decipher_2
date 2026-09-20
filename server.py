@@ -13,11 +13,15 @@ The UI polls GET /api/state and sends POST /api/start (tap to speak) and
 /api/reset (Try again). Recording ends when the guest goes quiet.
 """
 import argparse, functools, json, os, random, threading, time, traceback
+import uuid
 import env  # noqa: F401  -- loads ~/.mixmind.env
 from concurrent.futures import ThreadPoolExecutor
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 import content, features, listen, local_bartender, narrate, speak, transcribe, uno_q, unoq_http, vad
+from catalog import INGREDIENTS
+from mixed_mode import MixedMode
+from dispensing import Dispenser
 
 # Pump number -> what the screen calls it. PLACEHOLDERS: the bottles are not
 # filled yet, so each pump just got a drink. Change the names here when they
@@ -28,8 +32,6 @@ import content, features, listen, local_bartender, narrate, speak, transcribe, u
 # _pick() forces 4 or 6 into every glass to keep the drink long, and ch3 is
 # capped at 20 ml because an accent poured big is undrinkable. Put a sharp
 # cordial on 3 and something fizzy on 4, or the recipes stop making sense.
-INGREDIENTS = {"1": "Orange juice", "2": "Cranberry", "3": "Lime cordial",
-               "4": "Ginger ale", "5": "Grape juice", "6": "Apple juice"}
 
 # 18 oz party cups, packed with ice. local_bartender does the arithmetic that
 # keeps a pour under the rim; this is what the screen tells the guest to do.
@@ -75,6 +77,7 @@ class Machine:
         self.think_min, self.reveal_lead, self.serve_s = timings
         self.lock = threading.Lock()
         self.worker = None
+        self.mixed = None
         self._set(state="idle", level_db=-60.0, elapsed_s=0.0, features=None,
                   recipe=None, pour=None, error=None, reset=True)
 
@@ -87,7 +90,9 @@ class Machine:
                 # against the same numbers, and recalibrating the mic cannot
                 # leave the two quietly disagreeing.
                 self.s = {"ingredients": INGREDIENTS, "cup": CUP, "speech": None,
-                          "ranges": local_bartender.RANGES}
+                          "ranges": local_bartender.RANGES, "mode": "quick",
+                          "allowed_actions": [], "session_id": None, "version": 0,
+                          "mixed_available": bool(os.environ.get("OPENROUTER_API_KEY"))}
             self.s.update(kw)
 
     def snapshot(self):
@@ -95,11 +100,34 @@ class Machine:
             return json.dumps(self.s)
 
     # ---------- what the UI's buttons do ----------
-    def start(self):
+    def start(self, mode="quick"):
         with self.lock:
-            if self.worker and self.worker.is_alive():
+            if mode not in ("quick", "mixed") or self.s["state"] != "idle" or (self.worker and self.worker.is_alive()):
                 return False                     # one guest at a time
-            self.worker = threading.Thread(target=self._guest, daemon=True)
+            if mode == "mixed":
+                if not os.environ.get("OPENROUTER_API_KEY"):
+                    return False
+                self.mixed = MixedMode(self)
+                target = lambda: self.mixed.turn(initial=True)
+            else:
+                self.mixed = None
+                target = self._guest
+            self.worker = threading.Thread(target=target, daemon=True)
+            self.worker.start()
+            return True
+
+    def _idle(self):
+        self._set(state="idle", level_db=-60.0, elapsed_s=0.0, features=None,
+                  recipe=None, pour=None, error=None, reset=True)
+
+    def action(self, action, session_id, version):
+        with self.lock:
+            if (not self.mixed or (self.worker and self.worker.is_alive()) or
+                session_id != self.mixed.session.id or version != self.mixed.session.version or
+                action not in self.s.get("allowed_actions", [])):
+                return False
+            self.s["allowed_actions"] = []
+            self.worker = threading.Thread(target=self.mixed.action, args=(action,), daemon=True)
             self.worker.start()
             return True
 
@@ -108,6 +136,10 @@ class Machine:
             busy = self.worker and self.worker.is_alive()
             if busy and self.s["state"] not in ("error", "serving"):
                 return False                     # never abandon a pour midway
+            if self.mixed and self.s["state"] not in ("error", "idle", "cancelled"):
+                return False
+            if self.mixed and busy:
+                return False
         self._set(state="idle", level_db=-60.0, elapsed_s=0.0, features=None,
                   recipe=None, pour=None, error=None, reset=True)
         return True
@@ -232,7 +264,8 @@ class Machine:
                 else:
                     self._set(pour=None)             # stirring
             try:
-                self.board.make(recipe, on_step=step)
+                event = Dispenser(self.board).execute(uuid.uuid4().hex, 1, "final", recipe, on_step=step)
+                recipe.update(event["recipe"])
             except Exception as e:
                 log["board_error"] = str(e)
                 raise GuestError("The pumps didn't answer. Please get a MixMind team member.")
@@ -283,11 +316,27 @@ def handler(machine, ui_dir):
             self.wfile.write(data)
 
         def do_GET(self):
+            if self.path.split("?")[0] == "/api/catalog":
+                return self._json(200, json.dumps({"ingredients": INGREDIENTS}))
             if self.path.split("?")[0] == "/api/state":
                 return self._json(200, machine.snapshot())
             return super().do_GET()                  # the UI's files
 
         def do_POST(self):
+            path = self.path.split("?")[0]
+            if path in ("/api/start", "/api/action"):
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 <= length <= 4096:
+                        raise ValueError("Invalid body size")
+                    body = json.loads(self.rfile.read(length)) if length else {}
+                    if not isinstance(body, dict):
+                        raise ValueError("Expected object")
+                    ok = (machine.start(body.get("mode", "quick")) if path == "/api/start" else
+                          machine.action(body.get("action"), body.get("session_id"), body.get("version")))
+                    return self._json(200 if ok else 409, json.dumps({"ok": ok}))
+                except (ValueError, TypeError):
+                    return self._json(400, '{"error":"Invalid action"}')
             act = {"/api/start": machine.start,
                    "/api/reset": machine.reset}.get(self.path.split("?")[0])
             if act is None:

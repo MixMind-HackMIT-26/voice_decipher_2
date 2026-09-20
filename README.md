@@ -1,5 +1,60 @@
 # voice_decipher
 
+## Quick Mix and Taste & Tune
+
+The kiosk now offers two modes. **Quick Mix** retains the deployed one-pass
+pipeline: acoustic analysis, optional transcription/sentiment, optional narrator,
+the existing TTS chain, and weighed/timed final pouring. Existing provider and
+model settings are unchanged. The older offline descriptions below describe its
+local fallback, not every optional configuration.
+
+**Taste & Tune** uses `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`
+(default `google/gemini-3.8-flash`). Gemini receives WAV audio, initial voice
+measurements, the current recipe, and the conversation. It can clarify, propose,
+accept, or cancel. Three proposals maximum; explicit exclusions persist and are
+validated independently of subsequent model edits. Credentials belong in the
+process environment or the existing untracked machine environment file.
+
+`catalog.py` is the authoritative bottle mapping: orange, cranberry, lime cordial,
+ginger ale, grape, apple on channels 1-6. Final proposals are capped at 130 mL,
+10-60 mL per ingredient, and 20 mL lime cordial. The board retains its independent
+145 mL ceiling. The frontend is served from the same Pi as before.
+
+Samples are **0.08 times each ingredient in the proposed final serving**, in a
+separate cup. The final serving is full-size in a fresh iced cup. Sampling uses
+timed pulses through the existing transport; Quick Mix's weighed-pour behavior
+is unchanged. Per-channel pump calibration wins; without it, samples alone use
+25/5.2 mL/s. Override that sample-only fallback with `MIXMIND_SAMPLE_ML_S`.
+Timed quantities are targets, not measured delivery claims.
+
+Real samples are disabled until `MIXMIND_SAMPLES=on`; mock boards enable them.
+Check repeatability with `python sample_check.py --channel 1 --ml 0.8` (also
+1.6, 3.2, 4.8 mL). This command explicitly prompts before operating a pump.
+No hardware or firmware update is required.
+
+The UI polls `/api/state`; `POST /api/start` accepts `{"mode":"quick"}` or
+`{"mode":"mixed"}`. `POST /api/action` takes `action`, `session_id`, and `version`.
+Use only actions returned in `allowed_actions`. A sample requires cup readiness;
+the final pour requires a separate cup-ready confirmation. Failed conversation
+requests preserve the recipe. A disconnected screen reconnects without inventing
+a demonstration pour.
+
+Physical actions are journaled in `logs/dispensing/` before commands are sent.
+Interrupted/failed operations become `uncertain` and block further dispensing,
+including after a restart. Stop the server and inspect the machine/cup before
+recovery. Preserve the journal and change the inspected operation's status to
+`resolved` to acknowledge it; restarting will not retry that operation. Session
+snapshots are in `logs/sessions/`; a restarted server begins a new conversation.
+
+Verification (the last command makes an API call, never a pour):
+
+```sh
+python -B tests/test_negotiation.py
+python -B tests/test_mixed_mode.py
+python -B tests/test_server.py
+python verify_gemini.py tests/samples/flat-1.wav
+```
+
 The part of MixMind that listens. A guest talks for ten or twenty seconds; this
 turns the *sound* of their voice -- never the words -- into numbers, and the
 numbers into a drink. No speech-to-text, no API, no network. ~60 ms per clip
