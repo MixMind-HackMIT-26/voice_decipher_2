@@ -5,6 +5,11 @@
 #   MIXMIND_UNOQ=http://<ip>:8081 ./kiosk.sh    when the UNO Q's address changes
 # The mic is picked by name: card numbers can change after a reboot.
 cd "$(dirname "$0")"
+# Addresses move: the venue's DHCP and a phone hotspot hand out different ones
+# every time. Keep the UNO Q's address here rather than in the code:
+#   echo 'MIXMIND_UNOQ=http://172.20.10.11:8081' > ~/mixmind.env
+[ -f "$HOME/mixmind.env" ] && . "$HOME/mixmind.env"
+export MIXMIND_UNOQ
 export MIXMIND_MIC="${MIXMIND_MIC:-UACDemo}"
 export MIXMIND_SPK="${MIXMIND_SPK:-UACDemo}"   # the speaker, same reason
 # MIXMIND_UNOQ, ANTHROPIC_API_KEY / OPENAI_API_KEY if they are set in the
