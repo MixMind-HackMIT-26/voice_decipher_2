@@ -20,6 +20,7 @@ for f in "$HOME/.mixmind.env" "$HOME/mixmind.env" "./.env"; do
   [ -f "$f" ] && . "$f"
 done
 export ELEVENLABS_API_KEY DEEPGRAM_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY MIXMIND_UNOQ
+export OPENROUTER_API_KEY OPENROUTER_MODEL MIXMIND_SAMPLES MIXMIND_SAMPLE_ML_S
 export MIXMIND_MIC="${MIXMIND_MIC:-UACDemo}"
 export MIXMIND_SPK="${MIXMIND_SPK:-UACDemo}"   # the speaker, same reason
 # MIXMIND_UNOQ, DEEPGRAM_API_KEY, ANTHROPIC_API_KEY / OPENAI_API_KEY if set in the

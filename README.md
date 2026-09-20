@@ -32,7 +32,13 @@ Check repeatability with `python sample_check.py --channel 1 --ml 0.8` (also
 1.6, 3.2, 4.8 mL). This command explicitly prompts before operating a pump.
 No hardware or firmware update is required.
 
-The UI polls `/api/state`; `POST /api/start` accepts `{"mode":"quick"}` or
+Taste & Tune uses the dedicated `POST /api/start/mixed` endpoint, advertised in
+`/api/state` as `mixed_start_endpoint`. The UI requires this capability and
+`mixed_available=true`; an older backend cannot silently start Quick Mix instead.
+Update both repositories, rebuild the UI, and restart `kiosk.sh` after upgrading.
+The launcher exports OpenRouter and sample settings from its environment files.
+
+The UI polls `/api/state`; legacy `POST /api/start` accepts `{"mode":"quick"}` or
 `{"mode":"mixed"}`. `POST /api/action` takes `action`, `session_id`, and `version`.
 Use only actions returned in `allowed_actions`. A sample requires cup readiness;
 the final pour requires a separate cup-ready confirmation. Failed conversation

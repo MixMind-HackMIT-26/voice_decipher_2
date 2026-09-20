@@ -92,7 +92,8 @@ class Machine:
                 self.s = {"ingredients": INGREDIENTS, "cup": CUP, "speech": None,
                           "ranges": local_bartender.RANGES, "mode": "quick",
                           "allowed_actions": [], "session_id": None, "version": 0,
-                          "mixed_available": bool(os.environ.get("OPENROUTER_API_KEY"))}
+                          "mixed_available": bool(os.environ.get("OPENROUTER_API_KEY")),
+                          "mixed_start_endpoint": "/api/start/mixed"}
             self.s.update(kw)
 
     def snapshot(self):
@@ -324,7 +325,7 @@ def handler(machine, ui_dir):
 
         def do_POST(self):
             path = self.path.split("?")[0]
-            if path in ("/api/start", "/api/action"):
+            if path in ("/api/start", "/api/start/mixed", "/api/action"):
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     if not 0 <= length <= 4096:
@@ -332,8 +333,11 @@ def handler(machine, ui_dir):
                     body = json.loads(self.rfile.read(length)) if length else {}
                     if not isinstance(body, dict):
                         raise ValueError("Expected object")
-                    ok = (machine.start(body.get("mode", "quick")) if path == "/api/start" else
-                          machine.action(body.get("action"), body.get("session_id"), body.get("version")))
+                    if path in ("/api/start", "/api/start/mixed"):
+                        mode = "mixed" if path == "/api/start/mixed" else body.get("mode", "quick")
+                        ok = machine.start(mode)
+                        return self._json(200 if ok else 409, json.dumps({"ok": ok, "mode": mode}))
+                    ok = machine.action(body.get("action"), body.get("session_id"), body.get("version"))
                     return self._json(200 if ok else 409, json.dumps({"ok": ok}))
                 except (ValueError, TypeError):
                     return self._json(400, '{"error":"Invalid action"}')
