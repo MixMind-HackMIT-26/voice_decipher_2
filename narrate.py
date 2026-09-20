@@ -15,7 +15,9 @@ library only. Set MIXMIND_LLM=off to force the template.
 import json, os, re, urllib.error, urllib.request
 import env  # noqa: F401  -- loads ~/.mixmind.env
 
-TIMEOUT_S = float(os.environ.get("MIXMIND_LLM_TIMEOUT", "2.5"))
+# Measured at 2.3 s on a phone hotspot, so 2.5 was no margin at all. The
+# guest is reading the drink's name while this runs, so it is not dead time.
+TIMEOUT_S = float(os.environ.get("MIXMIND_LLM_TIMEOUT", "5"))
 MODEL_A   = os.environ.get("MIXMIND_LLM_MODEL", "claude-sonnet-4-5")
 MODEL_O   = os.environ.get("MIXMIND_LLM_MODEL_OPENAI", "gpt-4o-mini")
 MAX_WORDS = int(os.environ.get("MIXMIND_LINE_WORDS", "26"))

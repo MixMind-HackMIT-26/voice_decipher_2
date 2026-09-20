@@ -37,6 +37,7 @@ CUP = {"size_oz": 18, "hint": "Fill your cup with ice, then place it under the s
        "max_ml": local_bartender.TARGET_MAX_ML}
 
 THINK_MIN_S = 4.0     # let the voice dials animate in, even when we are fast
+NARRATE_S = 5.0       # how long the narrator gets, under the drink's name
 REVEAL_LEAD_S = 2.5   # the name lands and the voice starts, THEN the pumps run
 SERVE_S = 7.0         # "take your drink", then back to idle
 SERVE_LINE = "That is yours. Give it a stir and mind the ice."
@@ -141,15 +142,26 @@ class Machine:
                 try: spoken[0] = narrate.line(recipe, feats, words, INGREDIENTS)
                 except Exception: pass
             w = threading.Thread(target=write, daemon=True); w.start()
-            w.join(timeout=max(0.5, self.think_min - (time.time() - t1)))
             time.sleep(max(0.0, self.think_min - (time.time() - t1)))
+
+            # The NAME goes up first, on its own. The guest reads it while the
+            # narrator is still writing, so the wait costs nothing -- and the
+            # narrator gets a real budget instead of whatever happened to be
+            # left of think_min. On a slow uplink transcription alone eats the
+            # whole of that, so the old code gave the narrator 0.5 s and it
+            # fell back to the template every single time while the log
+            # cheerfully reported the model name.
+            self._set(state="reveal", recipe=recipe, speech=None)
+            w.join(timeout=NARRATE_S)
             log["spoken"] = spoken[0]
             log["narrator"] = narrate.available()
+            if spoken[0] == recipe["rationale"]:
+                log["narrator_fell_back"] = narrate.LAST_ERROR or "timed out"
 
-            # Reveal: the name goes up, the voice starts, and the pumps run
-            # UNDER it. The old code read the line for 8 s in silence and only
-            # then poured -- 8 s per guest, times sixty guests, for nothing.
-            self._set(state="reveal", recipe=recipe, speech=spoken[0])
+            # The voice starts and the pumps run UNDER it. The old code read
+            # the line for 8 s in silence and only then poured -- 8 s per
+            # guest, times sixty guests, for nothing.
+            self._set(speech=spoken[0])
             voice = self._say(spoken[0], recipe["axes"])
             time.sleep(self.reveal_lead)
 

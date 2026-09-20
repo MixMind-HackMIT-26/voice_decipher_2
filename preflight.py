@@ -93,7 +93,8 @@ def _narrator_live():
     t0 = time.time()
     line = narrate.line(r, f, {}, {"1": "orange"})
     if line == r["rationale"]:
-        return False, "fell back to the template: %s" % narrate.LAST_ERROR
+        return False, ("fell back to the template (%s) -- every guest would hear "
+                       "one of the same 8 phrases" % (narrate.LAST_ERROR or "timed out"))
     return True, "%.1fs: \"%s\"" % (time.time() - t0, line[:46])
 check("  ...round trip", _narrator_live,
       "raise MIXMIND_LLM_TIMEOUT if the network is slow", warn_only=True)
