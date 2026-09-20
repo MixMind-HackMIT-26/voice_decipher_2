@@ -106,6 +106,19 @@ def _tts():
 check("text-to-speech", _tts,
       "DEEPGRAM_API_KEY in ~/.mixmind.env, or: sudo apt install espeak-ng")
 
+def _tts_budget():
+    """ElevenLabs bills per character. Say how many guests that is."""
+    import narrate, speak
+    if not os.environ.get(speak.EL_KEY_ENV, "").strip():
+        return True, "skipped (not using ElevenLabs)"
+    chars = narrate.MAX_WORDS * 5.5              # ~5.5 chars a word with spaces
+    return True, ("~%d characters a guest; 10,000 free credits is roughly "
+                  "%d-%d drinks" % (chars, 10000 / (chars * 1.0), 10000 / (chars * 0.5)))
+check("  ...credit budget", _tts_budget,
+      "MIXMIND_TTS=deepgram while testing, MIXMIND_LINE_WORDS to shorten",
+      warn_only=True)
+
+
 def _tts_live():
     import speak
     if QUIET:

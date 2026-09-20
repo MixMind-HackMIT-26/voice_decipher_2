@@ -15,6 +15,15 @@ Four backends, tried in that order:
 Every backend takes the same two arguments, and all but ElevenLabs ignore
 the second one.
 
+    MIXMIND_TTS=auto         first backend with a key            (default)
+    MIXMIND_TTS=deepgram     skip ElevenLabs -- testing, on a metered plan
+    MIXMIND_TTS=elevenlabs   only ElevenLabs, no silent downgrade
+    MIXMIND_TTS=espeak       offline, costs nothing
+
+ElevenLabs credits are consumed per CHARACTER, so a weekend of rehearsal can
+quietly eat an allowance meant for guests. Test on Deepgram, serve on
+ElevenLabs.
+
 Nothing here raises. If every backend fails the machine simply stays quiet,
 because a guest with a drink and no voice is a working machine and a guest
 watching a crash is not.
@@ -31,6 +40,7 @@ import hashlib, json, os, platform, shutil, subprocess, threading, urllib.error,
 import env  # noqa: F401  -- loads ~/.mixmind.env
 
 SPK        = os.environ.get("MIXMIND_SPK", "").strip()
+WANT       = os.environ.get("MIXMIND_TTS", "auto").strip().lower()
 # ElevenLabs. The voice id comes from their voice library -- paste the id,
 # not the name. flash is the low-latency model; multilingual_v2 is the
 # documented default and is retried automatically if flash is refused.
@@ -197,9 +207,14 @@ def _openai_wav(text, shape=None):
 
 # (name, function, identity-for-the-cache-key). Order is the fallback order.
 def _backends():
-    return [("elevenlabs", _elevenlabs_audio, "el/%s/%s" % (EL_VOICE, EL_MODEL)),
-            ("deepgram",   _deepgram_wav,     DG_VOICE),
-            ("openai",     _openai_wav,       "%s/%s" % (TTS_MODEL, VOICE))]
+    all_of = [("elevenlabs", _elevenlabs_audio, "el/%s/%s" % (EL_VOICE, EL_MODEL)),
+              ("deepgram",   _deepgram_wav,     DG_VOICE),
+              ("openai",     _openai_wav,       "%s/%s" % (TTS_MODEL, VOICE))]
+    if WANT in ("auto", ""):
+        return all_of
+    if WANT == "espeak":
+        return []                        # straight to the offline voice
+    return [b for b in all_of if b[0] == WANT]
 
 
 def _cached(text, ident, shape=None):
@@ -298,6 +313,13 @@ def warm(lines):
 
 def available():
     out = _device() or "default out"
+    if WANT not in ("auto", ""):
+        for name, _, ident in _backends():
+            has = os.environ.get({"elevenlabs": EL_KEY_ENV,
+                                  "deepgram": "DEEPGRAM_API_KEY",
+                                  "openai": "OPENAI_API_KEY"}[name], "").strip()
+            return "%s%s (%s)" % (name, "" if has else " -- NO KEY, will use espeak", out)
+        return "espeak, pinned (%s)" % out
     if os.environ.get(EL_KEY_ENV, "").strip():
         return "elevenlabs/%s directed (%s)" % (EL_MODEL, out)
     if os.environ.get("DEEPGRAM_API_KEY", "").strip():

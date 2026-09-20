@@ -18,7 +18,9 @@ import env  # noqa: F401  -- loads ~/.mixmind.env
 TIMEOUT_S = float(os.environ.get("MIXMIND_LLM_TIMEOUT", "2.5"))
 MODEL_A   = os.environ.get("MIXMIND_LLM_MODEL", "claude-sonnet-4-5")
 MODEL_O   = os.environ.get("MIXMIND_LLM_MODEL_OPENAI", "gpt-4o-mini")
-MAX_WORDS = 34
+MAX_WORDS = int(os.environ.get("MIXMIND_LINE_WORDS", "26"))
+# ElevenLabs bills per character, so this number is a budget as well as a
+# style choice: ~26 words is about 140 characters a guest.
 LAST_ERROR = ""
 
 BRIEF = (
