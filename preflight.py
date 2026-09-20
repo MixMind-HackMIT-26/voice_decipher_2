@@ -153,11 +153,11 @@ check("offline voice", _espeak, "sudo apt install espeak-ng", warn_only=True)
 
 # ---------------------------------------------------------------- the ears
 def _mic():
+    """Open the mic the way record() will. A device that merely RESOLVES is
+    not a device that records: most USB mics refuse 16 kHz."""
     import listen
-    d = listen._device()
-    if listen.MIC and d is None:
-        return False, "MIXMIND_MIC=%r matched nothing" % listen.MIC
-    return True, "MIXMIND_MIC=%r -> %s" % (listen.MIC, d if d is not None else "system default")
+    b = listen.backend()
+    return not b.startswith("BROKEN"), "MIXMIND_MIC=%r -> %s" % (listen.MIC, b)
 check("microphone", _mic, "python listen.py  # lists what this machine sees")
 
 # ---------------------------------------------------------------- the pumps

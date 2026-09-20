@@ -106,6 +106,7 @@ def main():
           % (board.version, "silero" if vad.available() else "energy",
              transcribe.describe(),
              speak.available() if voice else "MUTED", narrate.available()))
+    print("         mic %s" % listen.backend())
     print("         18 oz cups with ice -- pours capped at %d ml\n"
           % local_bartender.TARGET_MAX_ML)
     try:

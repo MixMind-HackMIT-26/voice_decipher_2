@@ -113,14 +113,45 @@ def _capture(read, path=None, on_level=None):
 
 
 def record(path=None, on_level=None):
-    """Record from the mic until they stop talking, or 25 s."""
+    """Record from the mic until they stop talking, or 25 s.
+
+    Two ways in, and the second one is not a rare edge case. Most USB mics
+    do 44.1 or 48 kHz and refuse 16 kHz outright -- PortAudio opens the
+    device and then fails with paInvalidSampleRate. ALSA's plughw: plugin
+    resamples for us, so rather than resampling in numpy we hand the whole
+    job to arecord, which ships on every Pi.
+    """
     try:
         import sounddevice as sd      # imported late: the Pi has it, laptops may not
     except OSError:                   # PortAudio missing, and installing it needs sudo
         return _record_arecord(path, on_level)
-    with sd.InputStream(samplerate=SR, channels=1, dtype="int16",
-                        blocksize=Endpointer().chunk, device=_device()) as s:
-        return _capture(lambda n: s.read(n)[0][:, 0], path, on_level)
+    try:
+        with sd.InputStream(samplerate=SR, channels=1, dtype="int16",
+                            blocksize=Endpointer().chunk, device=_device()) as s:
+            return _capture(lambda n: s.read(n)[0][:, 0], path, on_level)
+    except Exception as e:
+        print("  [listen] sounddevice could not open the mic at %d Hz (%s)"
+              "\n  [listen] falling back to arecord, which resamples" % (SR, e))
+        return _record_arecord(path, on_level)
+
+
+def backend():
+    """Which of the two will record() use? For the banner and preflight."""
+    try:
+        import sounddevice as sd
+    except OSError:
+        return "arecord %s (no PortAudio)" % (_alsa_device() or "default")
+    try:
+        d = _device()
+        sd.InputStream(samplerate=SR, channels=1, dtype="int16",
+                       blocksize=Endpointer().chunk, device=d).close()
+        return "sounddevice device %s @ %d Hz" % (d, SR)
+    except Exception as e:
+        try:
+            dev = _alsa_device() or "default"
+        except Exception as e2:
+            return "BROKEN: %s / %s" % (e, e2)
+        return "arecord %s (mic refused %d Hz)" % (dev, SR)
 
 
 def _alsa_device():
