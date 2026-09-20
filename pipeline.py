@@ -20,8 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 import content, features, listen, local_bartender, narrate, speak, transcribe, vad
 import uno_q, unoq_http
 
-INGREDIENTS = {"1": "Orange juice", "2": "Cranberry", "3": "Lime cordial",
-               "4": "Ginger ale", "5": "Grape juice", "6": "Apple juice"}
+from catalog import INGREDIENTS   # one bottle order, shared with the server
 
 
 def show(kind, i, n, p):

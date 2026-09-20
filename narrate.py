@@ -136,8 +136,8 @@ if __name__ == "__main__":
          "pause_ratio": 0.03, "duration_s": 7.0, "pitch_mean_hz": 160.0}
     w = {"valence": -0.2, "says_okay": True, "transcript": "yeah no I'm fine, just a long week"}
     r = local_bartender.recipe(f, w)
-    ing = {"1": "orange", "2": "cranberry", "3": "lime", "4": "ginger ale",
-           "5": "grape", "6": "apple"}
+    ing = {"1": "orange", "2": "sweet tea", "3": "pineapple mango",
+           "4": "cranberry", "5": "limeade", "6": "apple"}
     print("narrator: %s\n" % available())
     print("template: %s" % r["rationale"])
     for i in range(3):
