@@ -163,6 +163,17 @@ def _cal():
 check("pump calibration", _cal, "python calibrate.py   # 10 min with a kitchen scale")
 
 # ---------------------------------------------------------------- the drink
+def _scale():
+    import unoq_http
+    b = unoq_http.HttpUnoQ()
+    if not b.weighing:
+        return False, "no load cell -- pours are timed and unverified"
+    dg = b.weigh()
+    return True, "reading %.1f g right now" % (dg / 10.0)
+check("load cell", _scale,
+      "python loadcell.py   # or ignore: timed pours still work", warn_only=True)
+
+
 def _cup():
     import local_bartender as lb, unoq_http
     ok = lb.TARGET_MAX_ML <= unoq_http.MAX_TOTAL_ML <= lb.LIQUID_ROOM_ML

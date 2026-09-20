@@ -78,6 +78,61 @@ GET http://10.189.87.190:8081/stop                          -> all off
 only thing that needs pyserial, and it imports it lazily so a Pi without it
 still runs the kiosk.
 
+## The load cell: the machine finds out what it poured
+
+Until now every pour was **open loop**. The machine ran a pump for a
+calculated number of milliseconds and then assumed. It never learned what
+landed in the cup, so a pump running 15% fast was invisible until a drink
+went over the rim.
+
+An HX711 and a load cell under the cup close that loop. `pourTo` on the
+microcontroller runs the pump until the cup *gets heavier by the right
+amount* and stops on the weight, not on a stopwatch:
+
+```
+    timed     ml / (ml per second) -> milliseconds -> hope
+    weighed   pour until the cup gains 41.6 g -> it did -> stop
+```
+
+What that buys, in order of how much it matters:
+
+1. **A cup cannot overfill.** The stopwatch is now only a backstop for a
+   blocked tube or an empty bottle. Drift in the pump rate no longer
+   accumulates into the ice margin.
+2. **The log records the drink that was made**, not the one that was asked
+   for: every pour writes back `poured_ml`, and the recipe gets
+   `poured_total_ml`.
+3. **The cup being lifted mid-pour stops the pump**, because the weight goes
+   down instead of up.
+
+It degrades quietly in both directions. No load cell, an uncalibrated one, or
+a connector that falls out mid-drink and every remaining pour goes back to
+timed, which is exactly what the machine did before. `tests/test_unoq_http.py`
+kills the scale in the middle of a drink and checks the rest of it still
+pours.
+
+### Wiring and calibration
+
+| HX711 | UNO Q |
+|---|---|
+| VCC | **3.3 V &mdash; not 5 V** |
+| GND | GND |
+| DT | D9 |
+| SCK | D10 |
+
+DT is an output that follows the HX711's supply, and the UNO Q's pins are
+3.3 V. The cell's four thin wires go into the HX711's screw terminals: red
+E+, black E-, white A-, green A+. Swapping white and green only makes the
+reading negative, which the software handles.
+
+```
+python loadcell.py            empty plate, then one known weight (100 g+)
+python loadcell.py --check    put things on it and watch the grams
+```
+
+That writes `loadcell.json`, and `unoq_http` picks it up at startup and
+switches to weighed pours on its own.
+
 ## The cup: why a drink is 130 ml and not 220
 
 18 oz party cups, packed with ice. The number that matters is not the cup's
@@ -286,6 +341,13 @@ too: `pipeline.py --port /dev/ttyUSB0`.
 
 `fake_board.py` answers exactly like the sketch through a real virtual serial
 port, so the Pi's serial code runs for real. Drop `--wav` to use the mic.
+
+### Which firmware is on the board
+
+`unoq/app/` is what runs: `sketch.ino` on the STM32 (relays + HX711) and
+`main.py` on the Linux side (HTTP -> Bridge). `unoq/sketch-uart-legacy/` is
+the earlier three-wire plan that was never built &mdash; kept so nobody
+re-tries it.
 
 ## Deepgram (Aura + nova-3)
 

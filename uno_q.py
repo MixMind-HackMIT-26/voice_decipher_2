@@ -92,6 +92,7 @@ class MockUnoQ(UnoQ):
     """Same API, no board. speed=20 runs pours 20x faster than real time."""
     def __init__(self, speed=20.0):
         self.speed, self.version, self.sent = speed, "MIXMIND v3 MOCK", []
+        self.weighing = False        # a mock has no scale: pours stay timed
 
     def _cmd(self, text, timeout=5):
         self.sent.append(text)

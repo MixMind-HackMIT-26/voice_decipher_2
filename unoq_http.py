@@ -1,18 +1,30 @@
-"""Pour through the UNO Q over Wi-Fi -- the contract in the system handover:
+"""Pour through the UNO Q over Wi-Fi.
 
-    GET /pour?ch=<1-6>&ms=<0-30000>   runs that pump, then stops it. The
-                                      request lasts as long as the pour.
-    GET /stop                         every channel off, now
-    -> {"ok": true}  or  {"ok": false, "error": "..."}
+    GET /pour?ch=<1-6>&ms=<0-30000>    run that pump for that long
+    GET /pour_to?ch=&dg=&maxms=        run it until the cup gains dg tenths
+                                       of a gram -> {"dg": delivered}
+    GET /weigh /tare /raw /scale       the load cell under the cup
+    GET /stop                          every channel off, now
+    -> {"ok": true, ...}  or  {"ok": false, "error": "..."}
 
-Pumps 1-6 are on the UNO Q's D2-D7. Channel 7 was the stirrer, which was cut,
-so this never stirs. Standard library only.
+TWO WAYS TO POUR. Timed is the original: millilitres divided by a measured
+ml/s, and then you hope. Weighed is what the load cell bought us -- the pump
+stops because the drink arrived, not because a stopwatch said it should
+have. Weighed is used whenever the scale is calibrated and answering, and
+every pour falls back to timed on its own if the scale goes quiet, so a
+loose connector costs accuracy and not the evening.
+
+Pumps 1-6 are on the UNO Q's D2-D7. Channel 7 was the stirrer, which was
+cut, so this never stirs. Standard library only.
 """
 import json, os, urllib.error, urllib.request
 
 URL = os.environ.get("MIXMIND_UNOQ", "http://10.189.87.190:8081")   # changes on DHCP renewal
 ML_PER_SEC = 3.7        # the handover's guess -- calibration.json overrides, per pump
 CAL_FILE = os.environ.get("MIXMIND_CAL", "calibration.json")
+LC_FILE  = os.environ.get("MIXMIND_LOADCELL", "loadcell.json")
+JUICE_GML = 1.04        # grams per millilitre: juice, not water
+TOL_DG   = 30           # a weighed pour more than 3 g off target is reported
 MAX_MS = 30000          # the sketch refuses anything longer
 # The safety net for the 18 oz cups: local_bartender aims at 130 ml and
 # shows its working; this refuses anything that would go over the side even
@@ -42,9 +54,10 @@ def validate(recipe):
 class HttpUnoQ:
     speed = 1.0
 
-    def __init__(self, url=URL):
+    def __init__(self, url=URL, weigh=True):
         self.url = url.rstrip("/")
         self.version = "UNO Q at %s" % self.url
+        self.weighing = False
         self.rates = [ML_PER_SEC] * 6
         self.calibrated = False
         try:                                     # {"1": 3.4, ..., "6": 3.9}
@@ -57,6 +70,41 @@ class HttpUnoQ:
             # with a scale and calibrate.py fixes it for the whole weekend.
             print("WARNING: no usable %s -- all six pumps assumed %.1f ml/s. "
                   "Run `python calibrate.py`." % (CAL_FILE, ML_PER_SEC))
+        self._wake_scale(weigh)
+
+    # ------------------------------------------------------------ the scale
+    def _wake_scale(self, want=True):
+        """Push the saved counts-per-decigram to the board and see if it
+        answers. Quiet failure is deliberate: no scale just means timed."""
+        if not want:
+            return
+        try:
+            cpdg = int(json.load(open(LC_FILE))["counts_per_dg"])
+        except (OSError, KeyError, ValueError, TypeError):
+            return
+        if not cpdg:
+            return
+        try:
+            self._get("/scale?cpdg=%d" % cpdg, timeout=5)
+            self._get("/weigh", timeout=5)
+        except UnoQError:
+            return
+        self.weighing = True
+        self.version += " + scale"
+
+    def tare(self):
+        """The cup and its ice are now zero."""
+        return self._get("/tare", timeout=8)
+
+    def weigh(self):
+        """Tenths of a gram since the last tare."""
+        return self._get("/weigh", timeout=8).get("dg", 0)
+
+    def raw(self):
+        return self._get("/raw", timeout=8).get("raw", 0)
+
+    def set_scale(self, counts_per_dg):
+        return self._get("/scale?cpdg=%d" % int(counts_per_dg), timeout=5)
 
     def _get(self, path, timeout):
         try:
@@ -82,14 +130,56 @@ class HttpUnoQ:
         # a 10 s pour while the pump is still running and report a failure.
         return self._get("/pour?ch=%d&ms=%d" % (channel, ms), timeout=ms / 1000 + 5)
 
+    def pour_weighed(self, channel, ml):
+        """Run the pump until the cup gains this much. Returns the ml that
+        actually landed, or None if the scale could not do it."""
+        dg = int(round(ml * JUICE_GML * 10))
+        # The stopwatch estimate is only the backstop now: a blocked tube or
+        # an empty bottle has to end the pour even though the weight never
+        # arrives. Generous, because being slow is normal and stopping a good
+        # pour early is not.
+        maxms = min(MAX_MS, int(self.ms_for(channel, ml) * 1.8) + 2500)
+        try:
+            out = self._get("/pour_to?ch=%d&dg=%d&maxms=%d" % (channel, dg, maxms),
+                            timeout=maxms / 1000 + 6)
+        except UnoQError as e:
+            if "no scale" in str(e):
+                self.weighing = False          # it went quiet: stop asking
+                return None
+            raise
+        return out.get("dg", 0) / 10.0 / JUICE_GML
+
     def make(self, recipe, on_step=None):
-        """Every ingredient in order. Anything goes wrong: all pumps off."""
+        """Every ingredient in order. Anything goes wrong: all pumps off.
+
+        With a working scale the cup is tared first and each pour stops on
+        weight; what actually landed goes back into the recipe as
+        `poured_ml`, so the log records the drink that was made rather than
+        the one that was asked for.
+        """
         validate(recipe)
         pours = recipe["pours"]
+        weighed = self.weighing
+        if weighed:
+            try:
+                self.tare()                    # the cup and its ice are zero
+            except UnoQError:
+                weighed = False
         try:
             for i, p in enumerate(pours):
                 if on_step: on_step("pour", i, len(pours), p)
-                self.pour(p["channel"], p["ml"])
+                got = self.pour_weighed(p["channel"], p["ml"]) if weighed else None
+                if got is None:                # no scale, or it just dropped out
+                    weighed = False
+                    self.pour(p["channel"], p["ml"])
+                else:
+                    p["poured_ml"] = round(got, 1)
+            if weighed:
+                try:
+                    recipe["poured_total_ml"] = round(
+                        self.weigh() / 10.0 / JUICE_GML, 1)
+                except UnoQError:
+                    pass
         except Exception:
             try: self.all_off()
             except Exception: pass

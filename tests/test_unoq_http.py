@@ -8,6 +8,7 @@ sys.path.insert(0, HERE)
 import unoq_http
 
 seen, fail_on = [], set()
+scale = {"on": False, "dg": 0, "accuracy": 1.02}
 
 class FakeUnoQ(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -22,6 +23,23 @@ class FakeUnoQ(BaseHTTPRequestHandler):
                 body = {"ok": True}
         elif u.path == "/stop":
             body = {"ok": True}
+        elif u.path == "/scale":
+            body = {"ok": True, "cpdg": int(q["cpdg"][0])} if scale["on"] else \
+                   {"ok": False, "error": "no scale"}
+        elif u.path == "/tare":
+            scale["dg"] = 0
+            body = {"ok": True} if scale["on"] else {"ok": False, "error": "no scale"}
+        elif u.path == "/weigh":
+            body = {"ok": True, "dg": scale["dg"]} if scale["on"] else \
+                   {"ok": False, "error": "no scale"}
+        elif u.path == "/pour_to":
+            if not scale["on"]:
+                body = {"ok": False, "error": "no scale"}
+            else:
+                dg = int(q["dg"][0])
+                got = int(dg * scale["accuracy"])     # a real pump overshoots a little
+                scale["dg"] += got
+                body = {"ok": True, "dg": got}
         else:
             body = {"ok": False, "error": "unknown path"}
         data = json.dumps(body).encode()
@@ -71,6 +89,60 @@ for bad in ({"pours": [{"channel": 1, "ml": 40}]},                              
     assert seen == [], seen
 
 # 5. UNO Q off the network: a clear error, fast -- not a hang
+# ---- the load cell: pour to weight, and survive losing it ----
+# 7. no scale on the board -> HttpUnoQ never claims one, pours stay timed
+assert b.weighing is False
+seen.clear()
+b.make({"pours": [{"channel": 1, "ml": 40}, {"channel": 2, "ml": 40}]})
+assert all(p.startswith("/pour?") for p in seen), seen
+
+# 8. with a scale: the cup is tared, every pour is weighed, and what actually
+#    landed is written back into the recipe
+scale["on"] = True
+import json as _j
+open(unoq_http.LC_FILE, "w").write(_j.dumps({"counts_per_dg": 21}))
+try:
+    w = unoq_http.HttpUnoQ("http://127.0.0.1:%d" % srv.server_port)
+    assert w.weighing, "a calibrated, answering scale was not picked up"
+    assert "+ scale" in w.version
+    w.rates = [370.0] * 6
+    seen.clear()
+    r = {"pours": [{"channel": 1, "ml": 40}, {"channel": 5, "ml": 50}]}
+    w.make(r)
+    assert seen[0] == "/tare", seen                    # the ice is zeroed first
+    assert [p.split("?")[0] for p in seen[1:3]] == ["/pour_to", "/pour_to"], seen
+    assert "/pour?" not in " ".join(seen), seen        # nothing fell back
+    # asked for 40 ml; the fake pump gave 2% more, and the recipe says so
+    assert 40 < r["pours"][0]["poured_ml"] < 42, r
+    assert r["poured_total_ml"] > 90, r
+
+    # 9. the scale dies mid-drink -> the rest of the drink pours on time
+    seen.clear()
+    r2 = {"pours": [{"channel": 1, "ml": 40}, {"channel": 2, "ml": 40},
+                    {"channel": 3, "ml": 20}]}
+    class Dies:
+        n = 0
+    _real = w._get
+    def flaky(path, timeout):
+        if path.startswith("/pour_to"):
+            Dies.n += 1
+            if Dies.n > 1:
+                raise unoq_http.UnoQError("UNO Q refused /pour_to: no scale")
+        return _real(path, timeout)
+    w._get = flaky
+    w.make(r2)
+    assert w.weighing is False, "kept asking a scale that said no"
+    timed = [p for p in seen if p.startswith("/pour?")]
+    assert len(timed) == 2, seen      # first weighed, other two on time
+    assert "poured_ml" in r2["pours"][0] and "poured_ml" not in r2["pours"][2]
+    w._get = _real
+finally:
+    os.remove(unoq_http.LC_FILE)
+
+print("load cell: absent -> timed, present -> tare + weighed + poured_ml "
+      "recorded, dies mid-drink -> falls back without dropping the drink -- all pass")
+
+
 srv.shutdown(); srv.server_close()
 t = time.time()
 try:
@@ -80,3 +152,4 @@ except unoq_http.UnoQError as e:
 assert time.time() - t < 6
 
 print("unoq_http: pours in order, no stirrer, long pour, refusal -> all off, unsafe recipes, unreachable -- all pass")
+
