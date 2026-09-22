@@ -1,5 +1,44 @@
 # voice_decipher
 
+**The part of MixMind that listens.** A guest talks for ten or twenty seconds.
+This turns the *sound* of their voice -- how loud, how fast, how much they
+pause, how far their pitch moves -- into six numbers, the numbers into a
+recipe, and the recipe into six pump timings.
+
+The words are transcribed too, but only so the machine can notice when they
+disagree with the delivery. **The voice decides the drink; the words only
+change what it says about it.**
+
+```
+  microphone ─▶ measure ─▶ three axes ─▶ six weights ─▶ doses ─▶ UNO Q ─▶ pumps
+                  │                                        │
+                  │                                   validated here:
+              VAD, YIN pitch,                        nothing reaches a pump
+              jitter/shimmer,                        unless it is physically
+              pauses, pace                           sane (10-60 ml, ≤145 total)
+```
+
+The recipe itself is arithmetic -- no model, about a millisecond, and the same
+voice always gets the same drink. A language model writes the sentence the
+machine speaks aloud, *after* the recipe exists; it has no path to the pumps.
+
+## Where to look first
+
+| If you want to see... | Read |
+|---|---|
+| How a voice becomes six numbers | [`features.py`](features.py) -- YIN pitch tracking, jitter/shimmer, pause ratio |
+| How six numbers become a drink | [`local_bartender.py`](local_bartender.py) -- the whole recipe engine, ~120 lines |
+| Why calibration is per-microphone | `RANGES` in [`local_bartender.py`](local_bartender.py), and "Calibration" below |
+| How the pumps are driven | [`unoq_http.py`](unoq_http.py) -- validation, 9 s chunking, all-off on failure |
+| The kiosk state machine | [`server.py`](server.py) -- idle → listening → thinking → reveal → pouring → serving |
+| What runs *on* the UNO Q | [`unoq/app/`](unoq/app) -- the Linux-side app and the sketch it drives |
+| Which bottle is on which pump | [`catalog.py`](catalog.py) -- the authoritative channel mapping |
+
+The voice measurement and the recipe engine need only numpy, onnxruntime and
+sounddevice -- no SDKs anywhere, every cloud call is plain HTTP. The test
+suites all run on a laptop with no hardware attached: a fake UNO Q on a pty
+and a fake HTTP board stand in for the real one.
+
 ## Quick Mix and Taste & Tune
 
 The kiosk now offers two modes. **Quick Mix** retains the deployed one-pass
@@ -60,11 +99,6 @@ python -B tests/test_mixed_mode.py
 python -B tests/test_server.py
 python verify_gemini.py tests/samples/flat-1.wav
 ```
-
-The part of MixMind that listens. A guest talks for ten or twenty seconds; this
-turns the *sound* of their voice -- never the words -- into numbers, and the
-numbers into a drink. No speech-to-text, no API, no network. ~60 ms per clip
-on a laptop.
 
 Extracted from the MixMind software repo with its history intact, so `git log`
 is the development record.
